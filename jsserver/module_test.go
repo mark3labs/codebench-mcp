@@ -27,12 +27,10 @@ func TestModuleConfiguration_EnabledModules(t *testing.T) {
 			// These should not be available
 			const fsAvailable = typeof fs !== 'undefined';
 			const httpAvailable = typeof http !== 'undefined';
-			const fetchAvailable = typeof fetch !== 'undefined';
 			const processAvailable = typeof process !== 'undefined';
 			
 			console.log("fs available:", fsAvailable);
 			console.log("http available:", httpAvailable);
-			console.log("fetch available:", fetchAvailable);
 			console.log("process available:", processAvailable);
 			
 			"module test completed";
@@ -51,7 +49,6 @@ func TestModuleConfiguration_EnabledModules(t *testing.T) {
 	// Should not have other modules
 	assert.Contains(t, text, "fs available: false")
 	assert.Contains(t, text, "http available: false")
-	assert.Contains(t, text, "fetch available: false")
 	assert.Contains(t, text, "process available: false")
 	assert.Contains(t, text, "Result: module test completed")
 }
@@ -59,7 +56,7 @@ func TestModuleConfiguration_EnabledModules(t *testing.T) {
 func TestModuleConfiguration_DisabledModules(t *testing.T) {
 	// Test with all modules except fs and http
 	config := ModuleConfig{
-		EnabledModules: []string{"console", "fetch", "timers", "process"},
+		EnabledModules: []string{"console", "timers", "process"},
 	}
 	handler := NewJSHandlerWithConfig(config)
 
@@ -69,7 +66,6 @@ func TestModuleConfiguration_DisabledModules(t *testing.T) {
 		"code": `
 			// These should work
 			console.log("Console works");
-			console.log("fetch available:", typeof fetch !== 'undefined');
 			console.log("process available:", typeof process !== 'undefined');
 			
 			// These should not be available
@@ -88,7 +84,6 @@ func TestModuleConfiguration_DisabledModules(t *testing.T) {
 
 	// Should have enabled modules
 	assert.Contains(t, text, "Console works")
-	assert.Contains(t, text, "fetch available: true")
 	assert.Contains(t, text, "process available: true")
 
 	// Should not have disabled modules

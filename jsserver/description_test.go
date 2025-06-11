@@ -15,7 +15,7 @@ func TestBuildToolDescription(t *testing.T) {
 	}{
 		{
 			name:           "All modules enabled",
-			enabledModules: []string{"console", "fs", "http", "fetch", "timers", "process", "require"},
+			enabledModules: []string{"console", "fs", "http", "timers", "process", "require"},
 			expectedContent: []string{
 				"simplified JavaScript VM (goja)",
 				"NOT a full Node.js environment",
@@ -23,7 +23,6 @@ func TestBuildToolDescription(t *testing.T) {
 				"• console: Console logging",
 				"• fs: File system operations",
 				"• http: HTTP server creation",
-				"• fetch: HTTP client requests",
 				"• timers: Timer functions",
 				"• process: Process information",
 				"• require: Module loading system",
@@ -44,7 +43,6 @@ func TestBuildToolDescription(t *testing.T) {
 			notExpected: []string{
 				"• fs:",
 				"• http:",
-				"• fetch:",
 				"• process:",
 				"• require:",
 			},
@@ -64,17 +62,16 @@ func TestBuildToolDescription(t *testing.T) {
 			},
 		},
 		{
-			name:           "Only fetch enabled",
-			enabledModules: []string{"fetch"},
+			name:           "Only timers enabled",
+			enabledModules: []string{"timers"},
 			expectedContent: []string{
 				"📦 Available modules:",
-				"• fetch: HTTP client requests (fetch API with Promise support for GET/POST/etc)",
+				"• timers: Timer functions",
 			},
 			notExpected: []string{
 				"• console:",
 				"• fs:",
 				"• http:",
-				"• timers:",
 				"• process:",
 				"• require:",
 			},
@@ -101,7 +98,7 @@ func TestBuildToolDescription(t *testing.T) {
 func TestToolDescriptionDynamicUpdate(t *testing.T) {
 	// Test that different configurations produce different descriptions
 	config1 := ModuleConfig{EnabledModules: []string{"console", "fs"}}
-	config2 := ModuleConfig{EnabledModules: []string{"fetch", "timers"}}
+	config2 := ModuleConfig{EnabledModules: []string{"timers"}}
 
 	server1, err := NewJSServerWithConfig(config1)
 	assert.NoError(t, err)
@@ -120,11 +117,9 @@ func TestToolDescriptionDynamicUpdate(t *testing.T) {
 	// Config1 should mention console and fs
 	assert.Contains(t, desc1, "• console:")
 	assert.Contains(t, desc1, "• fs:")
-	assert.NotContains(t, desc1, "• fetch:")
 	assert.NotContains(t, desc1, "• timers:")
 
-	// Config2 should mention fetch and timers
-	assert.Contains(t, desc2, "• fetch:")
+	// Config2 should mention timers
 	assert.Contains(t, desc2, "• timers:")
 	assert.NotContains(t, desc2, "• console:")
 	assert.NotContains(t, desc2, "• fs:")

@@ -3,13 +3,11 @@ package jsserver
 import (
 	"context"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/dop251/goja"
@@ -24,25 +22,18 @@ type ModuleConfig struct {
 }
 
 type JSHandler struct {
-	mu        sync.Mutex
-	intervals map[int]*time.Ticker
-	timeouts  map[int]*time.Timer
-	nextID    int
-	config    ModuleConfig
+	config ModuleConfig
 }
 
 func NewJSHandler() *JSHandler {
 	return NewJSHandlerWithConfig(ModuleConfig{
-		EnabledModules: []string{"console", "fs", "http", "fetch", "timers", "process", "require"},
+		EnabledModules: []string{"console", "fs", "http", "timers", "process", "require"},
 	})
 }
 
 func NewJSHandlerWithConfig(config ModuleConfig) *JSHandler {
 	return &JSHandler{
-		intervals: make(map[int]*time.Ticker),
-		timeouts:  make(map[int]*time.Timer),
-		nextID:    1,
-		config:    config,
+		config: config,
 	}
 }
 
@@ -50,7 +41,7 @@ func (h *JSHandler) isModuleEnabled(module string) bool {
 	return slices.Contains(h.config.EnabledModules, module)
 }
 
-func (h *JSHandler) setupConsole(vm *goja.Runtime) {
+func setupConsole(vm *goja.Runtime) {
 	console := vm.NewObject()
 	console.Set("log", func(call goja.FunctionCall) goja.Value {
 		for _, arg := range call.Arguments {
@@ -76,33 +67,28 @@ func (h *JSHandler) setupConsole(vm *goja.Runtime) {
 	vm.Set("console", console)
 }
 
-func (h *JSHandler) setupTimers(vm *goja.Runtime) {
+func setupTimers(vm *goja.Runtime) {
+	var intervals = make(map[int]*time.Ticker)
+	var timeouts = make(map[int]*time.Timer)
+	var nextID = 1
+
 	vm.Set("setTimeout", func(call goja.FunctionCall) goja.Value {
 		fn, _ := goja.AssertFunction(call.Arguments[0])
 		delay := time.Duration(call.Arguments[1].ToInteger()) * time.Millisecond
-
-		h.mu.Lock()
-		id := h.nextID
-		h.nextID++
-		h.mu.Unlock()
-
-		h.timeouts[id] = time.AfterFunc(delay, func() {
+		id := nextID
+		nextID++
+		timeouts[id] = time.AfterFunc(delay, func() {
 			_, _ = fn(goja.Undefined())
-			h.mu.Lock()
-			delete(h.timeouts, id)
-			h.mu.Unlock()
 		})
 		return vm.ToValue(id)
 	})
 
 	vm.Set("clearTimeout", func(call goja.FunctionCall) goja.Value {
 		id := int(call.Arguments[0].ToInteger())
-		h.mu.Lock()
-		if t, ok := h.timeouts[id]; ok {
+		if t, ok := timeouts[id]; ok {
 			t.Stop()
-			delete(h.timeouts, id)
+			delete(timeouts, id)
 		}
-		h.mu.Unlock()
 		return goja.Undefined()
 	})
 
@@ -110,12 +96,9 @@ func (h *JSHandler) setupTimers(vm *goja.Runtime) {
 		fn, _ := goja.AssertFunction(call.Arguments[0])
 		delay := time.Duration(call.Arguments[1].ToInteger()) * time.Millisecond
 		ticker := time.NewTicker(delay)
-
-		h.mu.Lock()
-		id := h.nextID
-		h.nextID++
-		h.intervals[id] = ticker
-		h.mu.Unlock()
+		id := nextID
+		nextID++
+		intervals[id] = ticker
 
 		go func() {
 			for range ticker.C {
@@ -128,17 +111,15 @@ func (h *JSHandler) setupTimers(vm *goja.Runtime) {
 
 	vm.Set("clearInterval", func(call goja.FunctionCall) goja.Value {
 		id := int(call.Arguments[0].ToInteger())
-		h.mu.Lock()
-		if t, ok := h.intervals[id]; ok {
+		if t, ok := intervals[id]; ok {
 			t.Stop()
-			delete(h.intervals, id)
+			delete(intervals, id)
 		}
-		h.mu.Unlock()
 		return goja.Undefined()
 	})
 }
 
-func (h *JSHandler) setupFS(vm *goja.Runtime) {
+func setupFS(vm *goja.Runtime) {
 	fs := vm.NewObject()
 	fs.Set("readFileSync", func(call goja.FunctionCall) goja.Value {
 		filename := call.Arguments[0].String()
@@ -165,88 +146,32 @@ func (h *JSHandler) setupFS(vm *goja.Runtime) {
 	vm.Set("fs", fs)
 }
 
-func (h *JSHandler) setupHTTP(vm *goja.Runtime) {
+func setupHTTP(vm *goja.Runtime) {
 	httpMod := vm.NewObject()
 	httpMod.Set("createServer", func(call goja.FunctionCall) goja.Value {
 		handler, _ := goja.AssertFunction(call.Arguments[0])
-
+		
 		server := vm.NewObject()
-
-		// Store server state
 		var httpServer *http.Server
-
+		
 		server.Set("listen", func(call goja.FunctionCall) goja.Value {
-			var port string
-			var host string = "localhost"
-			var callback goja.Callable
-
-			// Parse arguments - can be (port), (port, callback), (port, host), or (port, host, callback)
-			if len(call.Arguments) > 0 {
-				// First argument is always port
-				portArg := call.Arguments[0]
-				if goja.IsUndefined(portArg) || goja.IsNull(portArg) {
-					port = ":0" // Let system choose port
-				} else {
-					portNum := portArg.ToInteger()
-					port = fmt.Sprintf(":%d", portNum)
-				}
-
-				// Check remaining arguments
-				for i := 1; i < len(call.Arguments); i++ {
-					arg := call.Arguments[i]
-					if !goja.IsUndefined(arg) && !goja.IsNull(arg) {
-						// Try to convert to function (callback)
-						if fn, ok := goja.AssertFunction(arg); ok {
-							callback = fn
-						} else {
-							// Must be host string
-							host = arg.String()
-						}
-					}
-				}
-			} else {
-				port = ":8080" // Default port
+			port := ":8080" // Default port
+			if len(call.Arguments) > 0 && !goja.IsUndefined(call.Arguments[0]) {
+				port = fmt.Sprintf(":%d", call.Arguments[0].ToInteger())
 			}
-
-			// If host is specified, prepend it
-			addr := port
-			if host != "" && host != "localhost" {
-				addr = host + port
-			}
-
+			
 			go func() {
 				httpServer = &http.Server{
-					Addr: addr,
+					Addr: port,
 					Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 						req := vm.NewObject()
 						req.Set("url", r.URL.Path)
 						req.Set("method", r.Method)
-						req.Set("query", r.URL.RawQuery)
-
-						// Parse URL parameters
-						params := vm.NewObject()
-						for key, values := range r.URL.Query() {
-							if len(values) > 0 {
-								params.Set(key, values[0])
-							}
-						}
-						req.Set("query", params)
-
-						headers := vm.NewObject()
-						for k, v := range r.Header {
-							if len(v) > 0 {
-								headers.Set(k, v[0])
-							}
-						}
-						req.Set("headers", headers)
 
 						res := vm.NewObject()
-						res.Set("statusCode", 200) // Default status
-
 						res.Set("writeHead", func(call goja.FunctionCall) goja.Value {
 							if len(call.Arguments) > 0 {
 								statusCode := int(call.Arguments[0].ToInteger())
-								res.Set("statusCode", statusCode)
 								w.WriteHeader(statusCode)
 							}
 							if len(call.Arguments) > 1 && !goja.IsUndefined(call.Arguments[1]) {
@@ -257,23 +182,7 @@ func (h *JSHandler) setupHTTP(vm *goja.Runtime) {
 							}
 							return goja.Undefined()
 						})
-
-						res.Set("setHeader", func(call goja.FunctionCall) goja.Value {
-							if len(call.Arguments) >= 2 {
-								key := call.Arguments[0].String()
-								value := call.Arguments[1].String()
-								w.Header().Set(key, value)
-							}
-							return goja.Undefined()
-						})
-
-						res.Set("write", func(call goja.FunctionCall) goja.Value {
-							if len(call.Arguments) > 0 {
-								w.Write([]byte(call.Arguments[0].String()))
-							}
-							return goja.Undefined()
-						})
-
+						
 						res.Set("end", func(call goja.FunctionCall) goja.Value {
 							if len(call.Arguments) > 0 {
 								w.Write([]byte(call.Arguments[0].String()))
@@ -283,25 +192,15 @@ func (h *JSHandler) setupHTTP(vm *goja.Runtime) {
 
 						_, err := handler(goja.Undefined(), req, res)
 						if err != nil {
-							fmt.Printf("HTTP handler error: %v\n", err)
+							fmt.Println("HTTP handler error:", err)
 						}
 					}),
 				}
-
-				// Call callback if provided (when server starts listening)
-				if callback != nil {
-					callback(goja.Undefined())
-				}
-
-				err := httpServer.ListenAndServe()
-				if err != nil && err != http.ErrServerClosed {
-					fmt.Printf("HTTP server error: %v\n", err)
-				}
+				httpServer.ListenAndServe()
 			}()
-
-			return server
+			return goja.Undefined()
 		})
-
+		
 		server.Set("close", func(call goja.FunctionCall) goja.Value {
 			if httpServer != nil {
 				go func() {
@@ -312,8 +211,7 @@ func (h *JSHandler) setupHTTP(vm *goja.Runtime) {
 			}
 			return goja.Undefined()
 		})
-
-		// Add address method to get the actual listening address
+		
 		server.Set("address", func(call goja.FunctionCall) goja.Value {
 			if httpServer != nil {
 				addr := vm.NewObject()
@@ -322,13 +220,13 @@ func (h *JSHandler) setupHTTP(vm *goja.Runtime) {
 			}
 			return goja.Null()
 		})
-
+		
 		return server
 	})
 	vm.Set("http", httpMod)
 }
 
-func (h *JSHandler) setupProcess(vm *goja.Runtime) {
+func setupProcess(vm *goja.Runtime) {
 	proc := vm.NewObject()
 	proc.Set("argv", os.Args)
 	proc.Set("cwd", func(goja.FunctionCall) goja.Value {
@@ -356,143 +254,7 @@ func (h *JSHandler) setupProcess(vm *goja.Runtime) {
 	vm.Set("process", proc)
 }
 
-func (h *JSHandler) setupFetch(vm *goja.Runtime) {
-	vm.Set("fetch", func(call goja.FunctionCall) goja.Value {
-		if len(call.Arguments) == 0 {
-			panic(vm.ToValue("fetch requires at least one argument"))
-		}
-
-		url := call.Arguments[0].String()
-
-		// Parse options if provided
-		var method = "GET"
-		var headers = make(map[string]string)
-		var body string
-
-		if len(call.Arguments) > 1 && !goja.IsUndefined(call.Arguments[1]) && !goja.IsNull(call.Arguments[1]) {
-			options := call.Arguments[1].(*goja.Object)
-
-			if methodVal := options.Get("method"); !goja.IsUndefined(methodVal) {
-				method = methodVal.String()
-			}
-
-			if headersVal := options.Get("headers"); !goja.IsUndefined(headersVal) {
-				headersObj := headersVal.(*goja.Object)
-				for _, key := range headersObj.Keys() {
-					headers[key] = headersObj.Get(key).String()
-				}
-			}
-
-			if bodyVal := options.Get("body"); !goja.IsUndefined(bodyVal) {
-				body = bodyVal.String()
-			}
-		}
-
-		// Create promise
-		promise, resolve, reject := vm.NewPromise()
-
-		// Execute fetch in goroutine
-		go func() {
-			// Create HTTP request
-			var req *http.Request
-			var err error
-
-			if body != "" {
-				req, err = http.NewRequest(method, url, strings.NewReader(body))
-			} else {
-				req, err = http.NewRequest(method, url, nil)
-			}
-
-			if err != nil {
-				reject(vm.ToValue(fmt.Sprintf("Failed to create request: %v", err)))
-				return
-			}
-
-			// Set headers
-			for key, value := range headers {
-				req.Header.Set(key, value)
-			}
-
-			// Set default User-Agent if not provided
-			if req.Header.Get("User-Agent") == "" {
-				req.Header.Set("User-Agent", "codebench-mcp/1.0")
-			}
-
-			// Create HTTP client with timeout
-			client := &http.Client{
-				Timeout: 30 * time.Second,
-			}
-
-			// Execute request
-			resp, err := client.Do(req)
-			if err != nil {
-				reject(vm.ToValue(fmt.Sprintf("Fetch failed: %v", err)))
-				return
-			}
-			defer resp.Body.Close()
-
-			// Read response body
-			bodyBytes, err := io.ReadAll(resp.Body)
-			if err != nil {
-				reject(vm.ToValue(fmt.Sprintf("Failed to read response body: %v", err)))
-				return
-			}
-
-			// Create response object
-			response := vm.NewObject()
-			response.Set("status", resp.StatusCode)
-			response.Set("statusText", resp.Status)
-			response.Set("ok", resp.StatusCode >= 200 && resp.StatusCode < 300)
-			response.Set("url", url)
-
-			// Set response headers
-			responseHeaders := vm.NewObject()
-			for key, values := range resp.Header {
-				if len(values) > 0 {
-					responseHeaders.Set(key, values[0])
-				}
-			}
-			response.Set("headers", responseHeaders)
-
-			// Add response methods
-			response.Set("text", func(goja.FunctionCall) goja.Value {
-				textPromise, textResolve, _ := vm.NewPromise()
-				textResolve(vm.ToValue(string(bodyBytes)))
-				return vm.ToValue(textPromise)
-			})
-
-			response.Set("json", func(goja.FunctionCall) goja.Value {
-				jsonPromise, jsonResolve, jsonReject := vm.NewPromise()
-
-				// Parse JSON in the VM context
-				go func() {
-					result, err := vm.RunString(fmt.Sprintf("JSON.parse(%s)", vm.ToValue(string(bodyBytes)).String()))
-					if err != nil {
-						jsonReject(vm.ToValue(fmt.Sprintf("Invalid JSON: %v", err)))
-					} else {
-						jsonResolve(result)
-					}
-				}()
-
-				return vm.ToValue(jsonPromise)
-			})
-
-			response.Set("arrayBuffer", func(goja.FunctionCall) goja.Value {
-				bufferPromise, bufferResolve, _ := vm.NewPromise()
-				arrayBuffer := vm.NewArrayBuffer(bodyBytes)
-				bufferResolve(vm.ToValue(arrayBuffer))
-				return vm.ToValue(bufferPromise)
-			})
-
-			// Resolve the main promise with the response
-			resolve(response)
-		}()
-
-		return vm.ToValue(promise)
-	})
-}
-
-func (h *JSHandler) setupRequire(vm *goja.Runtime, basePath string) {
+func setupRequire(vm *goja.Runtime, basePath string, config ModuleConfig) {
 	vm.Set("require", func(call goja.FunctionCall) goja.Value {
 		modulePath := call.Arguments[0].String()
 
@@ -518,26 +280,23 @@ func (h *JSHandler) setupRequire(vm *goja.Runtime, basePath string) {
 		}
 
 		newVM := goja.New()
-		if h.isModuleEnabled("console") {
-			h.setupConsole(newVM)
+		if slices.Contains(config.EnabledModules, "console") {
+			setupConsole(newVM)
 		}
-		if h.isModuleEnabled("timers") {
-			h.setupTimers(newVM)
+		if slices.Contains(config.EnabledModules, "timers") {
+			setupTimers(newVM)
 		}
-		if h.isModuleEnabled("fs") {
-			h.setupFS(newVM)
+		if slices.Contains(config.EnabledModules, "fs") {
+			setupFS(newVM)
 		}
-		if h.isModuleEnabled("http") {
-			h.setupHTTP(newVM)
+		if slices.Contains(config.EnabledModules, "http") {
+			setupHTTP(newVM)
 		}
-		if h.isModuleEnabled("process") {
-			h.setupProcess(newVM)
+		if slices.Contains(config.EnabledModules, "process") {
+			setupProcess(newVM)
 		}
-		if h.isModuleEnabled("fetch") {
-			h.setupFetch(newVM)
-		}
-		if h.isModuleEnabled("require") {
-			h.setupRequire(newVM, basePath)
+		if slices.Contains(config.EnabledModules, "require") {
+			setupRequire(newVM, basePath, config)
 		}
 
 		exports := newVM.NewObject()
@@ -567,25 +326,22 @@ func (h *JSHandler) handleExecuteJS(
 
 	// Setup all the APIs conditionally
 	if h.isModuleEnabled("console") {
-		h.setupConsole(vm)
+		setupConsole(vm)
 	}
 	if h.isModuleEnabled("timers") {
-		h.setupTimers(vm)
+		setupTimers(vm)
 	}
 	if h.isModuleEnabled("fs") {
-		h.setupFS(vm)
+		setupFS(vm)
 	}
 	if h.isModuleEnabled("http") {
-		h.setupHTTP(vm)
+		setupHTTP(vm)
 	}
 	if h.isModuleEnabled("process") {
-		h.setupProcess(vm)
-	}
-	if h.isModuleEnabled("fetch") {
-		h.setupFetch(vm)
+		setupProcess(vm)
 	}
 	if h.isModuleEnabled("require") {
-		h.setupRequire(vm, ".")
+		setupRequire(vm, ".", h.config)
 	}
 
 	// Capture output
@@ -661,7 +417,7 @@ func (h *JSHandler) handleExecuteJS(
 
 func NewJSServer() (*server.MCPServer, error) {
 	return NewJSServerWithConfig(ModuleConfig{
-		EnabledModules: []string{"console", "fs", "http", "fetch", "timers", "process", "require"},
+		EnabledModules: []string{"console", "fs", "http", "timers", "process", "require"},
 	})
 }
 
@@ -707,7 +463,6 @@ func buildToolDescription(enabledModules []string) string {
 		"console": "Console logging (console.log, console.error, console.warn)",
 		"fs":      "File system operations (fs.readFileSync, fs.writeFileSync, fs.existsSync)",
 		"http":    "HTTP server creation (http.createServer with configurable ports and callbacks)",
-		"fetch":   "HTTP client requests (fetch API with Promise support for GET/POST/etc)",
 		"timers":  "Timer functions (setTimeout, setInterval, clearTimeout, clearInterval)",
 		"process": "Process information (process.argv, process.cwd, process.env, process.exit)",
 		"require": "Module loading system (require() for loading JavaScript modules)",

@@ -22,7 +22,6 @@ var availableModules = []string{
 	"console",
 	"fs",
 	"http",
-	"fetch",
 	"timers",
 	"process",
 	"require",
@@ -33,7 +32,7 @@ var rootCmd = &cobra.Command{
 	Use:   "codebench-mcp",
 	Short: "JavaScript Executor MCP Server",
 	Long: `A Model Context Protocol (MCP) server that provides JavaScript execution capabilities 
-with a Node.js-like environment including console, fs, http, fetch, timers, process, and require modules.`,
+with a Node.js-like environment including console, fs, http, timers, process, and require modules.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		// Validate module configuration
 		if len(enabledModules) > 0 && len(disabledModules) > 0 {
