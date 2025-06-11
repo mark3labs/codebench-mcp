@@ -1,18 +1,19 @@
 # JavaScript Executor MCP Server
 
-This MCP server provides JavaScript execution capabilities with a Node.js-like environment.
+This MCP server provides JavaScript execution capabilities with ski runtime.
 
 ## Features
 
 The `executeJS` tool provides:
 
-- **Console API**: `console.log()`, `console.error()`, `console.warn()`
-- **File System**: `fs.readFileSync()`, `fs.writeFileSync()`, `fs.existsSync()`
+- **Console API**: `console.log()`, `console.error()`, `console.warn()` (built-in)
 - **HTTP Server**: `http.createServer()` with request/response handling
-- **Fetch API**: `fetch()` with Promise support for HTTP requests
-- **Timers**: `setTimeout()`, `clearTimeout()`, `setInterval()`, `clearInterval()`
-- **Process**: `process.argv`, `process.cwd()`, `process.exit()`, `process.env`
-- **Module System**: `require()` for loading JavaScript modules
+- **HTTP Client**: `http.request()` for HTTP requests
+- **Fetch API**: Modern `fetch()` with Request, Response, Headers, FormData
+- **Timers**: `setTimeout()`, `setInterval()`, `clearTimeout()`, `clearInterval()`
+- **Buffer**: Buffer, Blob, File APIs for binary data handling
+- **Crypto**: Cryptographic functions (hashing, encryption, HMAC)
+- **Additional modules**: cache, dom, encoding, ext, html, signal, stream, url
 
 ## Getting Started
 
@@ -36,25 +37,33 @@ codebench-mcp
 
 ```bash
 # Enable only specific modules
-codebench-mcp --enabled-modules console,fs,timers
+codebench-mcp --enabled-modules http,fetch
 
 # Disable specific modules (enable all others)
-codebench-mcp --disabled-modules http,fetch
+codebench-mcp --disabled-modules timers
 
 # Show help
 codebench-mcp --help
 ```
 
 **Available modules:**
-- `console` - Console logging (console.log, console.error, console.warn)
-- `fs` - File system operations (fs.readFileSync, fs.writeFileSync, fs.existsSync)
-- `http` - HTTP server creation (http.createServer)
-- `fetch` - HTTP client requests (fetch API with promises)
-- `timers` - Timer functions (setTimeout, setInterval, clearTimeout, clearInterval)
-- `process` - Process information (process.argv, process.cwd, process.env, process.exit)
-- `require` - Module loading system
+- `http` - HTTP server creation and client requests (import serve from 'ski/http/server')
+- `fetch` - Modern fetch API with Request, Response, Headers, FormData (available globally)
+- `timers` - setTimeout, setInterval, clearTimeout, clearInterval (available globally)
+- `buffer` - Buffer, Blob, File APIs for binary data handling (available globally)
+- `cache` - In-memory caching with TTL support (import cache from 'ski/cache')
+- `crypto` - Cryptographic functions (hashing, encryption, HMAC) (import crypto from 'ski/crypto')
+- `dom` - DOM Event and EventTarget APIs
+- `encoding` - TextEncoder, TextDecoder for text encoding/decoding (available globally)
+- `ext` - Extended context and utility functions
+- `html` - HTML parsing and manipulation
+- `signal` - AbortController and AbortSignal for cancellation (available globally)
+- `stream` - ReadableStream and streaming APIs (available globally)
+- `url` - URL and URLSearchParams APIs (available globally)
 
-**Note:** The `executeJS` tool description dynamically updates to show only the enabled modules and includes detailed information about what each module provides. This helps users understand exactly what JavaScript APIs are available in the simplified VM environment.
+**Default modules:** `http`, `fetch`, `timers`, `buffer`, `crypto`
+
+**Note:** The `executeJS` tool description dynamically updates to show only the enabled modules and includes detailed information about what each module provides.
 
 #### As a library in your Go project
 
@@ -200,7 +209,7 @@ To integrate the Docker image with apps that support MCP:
 
 ### executeJS
 
-Execute JavaScript code with full Node.js-like environment.
+Execute JavaScript code with ski runtime environment.
 
 **Parameters:**
 - `code` (required): JavaScript code to execute
@@ -209,55 +218,49 @@ Execute JavaScript code with full Node.js-like environment.
 ```javascript
 console.log("Hello, World!");
 
-// File operations
-fs.writeFileSync("test.txt", "Hello from JS!");
-const content = fs.readFileSync("test.txt");
-console.log("File content:", content);
+// Basic JavaScript execution
+const result = 2 + 3;
+console.log('Result:', result);
 
-// Fetch API with promises
-fetch("https://api.github.com/users/octocat")
-  .then(response => response.json())
-  .then(data => {
-    console.log("User:", data.name);
-    console.log("Public repos:", data.public_repos);
-  })
-  .catch(error => console.error("Fetch error:", error));
+// Fetch API (available globally when enabled)
+const response = await fetch('https://api.example.com/data');
+const data = await response.json();
 
-// HTTP server with configurable ports and callbacks
-const server = http.createServer((req, res) => {
-  console.log(`${req.method} ${req.url}`);
-  
-  res.setHeader("Content-Type", "application/json");
-  res.writeHead(200);
-  res.end(JSON.stringify({
-    message: "Hello from HTTP server!",
-    method: req.method,
-    url: req.url
-  }));
+// HTTP server (import required)
+import serve from 'ski/http/server';
+serve(8000, async (req) => {
+  return new Response('Hello World');
 });
 
-// Multiple ways to start the server:
-server.listen(3000);                           // Port only
-server.listen(3000, () => console.log("Started!")); // Port + callback
-server.listen(3000, "localhost");             // Port + host
-server.listen(3000, "localhost", () => {      // Port + host + callback
-  console.log("Server running on localhost:3000");
-});
+// Cache operations (import required)
+import cache from 'ski/cache';
+cache.set('key', 'value');
+console.log(cache.get('key'));
 
-// Server management
-setTimeout(() => {
-  server.close(); // Gracefully shutdown server
-}, 10000);
+// Crypto operations (import required)
+import crypto from 'ski/crypto';
+const hash = crypto.md5('hello').hex();
+console.log('MD5 hash:', hash);
 
-// Timers
-setTimeout(() => {
-  console.log("Timer executed!");
-}, 1000);
+// Timers (available globally)
+setTimeout(() => console.log('Hello after 1 second'), 1000);
 
-// Process info
-console.log("Current directory:", process.cwd());
-console.log("Arguments:", process.argv);
+// Buffer operations (available globally)
+const buffer = Buffer.from('hello', 'utf8');
+console.log(buffer.toString('base64'));
+
+// URL operations (available globally)
+const url = new URL('https://example.com/path?param=value');
+console.log('Host:', url.host);
+console.log('Pathname:', url.pathname);
 ```
+
+## Limitations
+
+- **No fs or process modules** - File system and process APIs are not available in ski runtime
+- **Module access varies** - Some modules are global (fetch, http), others may need require()
+- **Each execution creates a fresh VM** - For isolation, each execution starts with a clean state
+- **Module filtering** - Configuration exists but actual runtime filtering not fully implemented
 
 ## Building
 

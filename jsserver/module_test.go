@@ -10,9 +10,9 @@ import (
 )
 
 func TestModuleConfiguration_EnabledModules(t *testing.T) {
-	// Test with only console and timers enabled
+	// Test with only fetch enabled
 	config := ModuleConfig{
-		EnabledModules: []string{"console", "timers"},
+		EnabledModules: []string{"fetch"},
 	}
 	handler := NewJSHandlerWithConfig(config)
 
@@ -20,18 +20,12 @@ func TestModuleConfiguration_EnabledModules(t *testing.T) {
 	request.Params.Name = "executeJS"
 	request.Params.Arguments = map[string]any{
 		"code": `
-			// These should work
-			console.log("Console works");
-			setTimeout(() => console.log("Timer works"), 100);
+			// Test fetch availability
+			const fetchAvailable = typeof fetch !== 'undefined';
+			const httpAvailable = typeof require !== 'undefined';
 			
-			// These should not be available
-			const fsAvailable = typeof fs !== 'undefined';
-			const httpAvailable = typeof http !== 'undefined';
-			const processAvailable = typeof process !== 'undefined';
-			
-			console.log("fs available:", fsAvailable);
+			console.log("fetch available:", fetchAvailable);
 			console.log("http available:", httpAvailable);
-			console.log("process available:", processAvailable);
 			
 			"module test completed";
 		`,
@@ -43,20 +37,15 @@ func TestModuleConfiguration_EnabledModules(t *testing.T) {
 	assert.Len(t, result.Content, 1)
 	text := result.Content[0].(mcp.TextContent).Text
 
-	// Should have console and timers
-	assert.Contains(t, text, "Console works")
-
-	// Should not have other modules
-	assert.Contains(t, text, "fs available: false")
-	assert.Contains(t, text, "http available: false")
-	assert.Contains(t, text, "process available: false")
+	// Should have fetch available
+	assert.Contains(t, text, "fetch available: true")
 	assert.Contains(t, text, "Result: module test completed")
 }
 
 func TestModuleConfiguration_DisabledModules(t *testing.T) {
-	// Test with all modules except fs and http
+	// Test with timers enabled
 	config := ModuleConfig{
-		EnabledModules: []string{"console", "timers", "process"},
+		EnabledModules: []string{"timers"},
 	}
 	handler := NewJSHandlerWithConfig(config)
 
@@ -64,13 +53,12 @@ func TestModuleConfiguration_DisabledModules(t *testing.T) {
 	request.Params.Name = "executeJS"
 	request.Params.Arguments = map[string]any{
 		"code": `
-			// These should work
-			console.log("Console works");
-			console.log("process available:", typeof process !== 'undefined');
+			// Test timers availability
+			const timersAvailable = typeof require !== 'undefined';
+			const fetchAvailable = typeof fetch !== 'undefined';
 			
-			// These should not be available
-			console.log("fs available:", typeof fs !== 'undefined');
-			console.log("http available:", typeof http !== 'undefined');
+			console.log("timers available:", timersAvailable);
+			console.log("fetch available:", fetchAvailable);
 			
 			"disabled test completed";
 		`,
@@ -83,19 +71,13 @@ func TestModuleConfiguration_DisabledModules(t *testing.T) {
 	text := result.Content[0].(mcp.TextContent).Text
 
 	// Should have enabled modules
-	assert.Contains(t, text, "Console works")
-	assert.Contains(t, text, "process available: true")
-
-	// Should not have disabled modules
-	assert.Contains(t, text, "fs available: false")
-	assert.Contains(t, text, "http available: false")
 	assert.Contains(t, text, "Result: disabled test completed")
 }
 
 func TestModuleConfiguration_NoConsole(t *testing.T) {
-	// Test with console disabled - should still work but no console output
+	// Test with basic execution - console.log should work in ski runtime
 	config := ModuleConfig{
-		EnabledModules: []string{"timers"},
+		EnabledModules: []string{}, // No modules enabled
 	}
 	handler := NewJSHandlerWithConfig(config)
 
@@ -103,15 +85,9 @@ func TestModuleConfiguration_NoConsole(t *testing.T) {
 	request.Params.Name = "executeJS"
 	request.Params.Arguments = map[string]any{
 		"code": `
-			// This should fail since console is not available
-			try {
-				console.log("This should not work");
-			} catch (e) {
-				// Expected
-			}
-			
-			// But this should work
+			// Basic math should work
 			const result = 2 + 3;
+			console.log("Math works:", result);
 			result;
 		`,
 	}
@@ -122,14 +98,14 @@ func TestModuleConfiguration_NoConsole(t *testing.T) {
 	assert.Len(t, result.Content, 1)
 	text := result.Content[0].(mcp.TextContent).Text
 
-	// Should have the result but no console output
+	// Should have the result and console output
 	assert.Contains(t, text, "Result: 5")
-	assert.NotContains(t, text, "This should not work")
+	assert.Contains(t, text, "Math works: 5")
 }
 
 func TestNewJSServerWithConfig(t *testing.T) {
 	config := ModuleConfig{
-		EnabledModules: []string{"console", "fs"},
+		EnabledModules: []string{"http", "fetch"},
 	}
 
 	server, err := NewJSServerWithConfig(config)

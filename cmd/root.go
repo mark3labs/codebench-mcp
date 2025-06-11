@@ -19,12 +19,19 @@ var (
 
 // Available modules
 var availableModules = []string{
-	"console",
-	"fs",
 	"http",
+	"fetch",
 	"timers",
-	"process",
-	"require",
+	"buffer",
+	"cache",
+	"crypto",
+	"dom",
+	"encoding",
+	"ext",
+	"html",
+	"signal",
+	"stream",
+	"url",
 }
 
 // rootCmd represents the base command when called without any subcommands
@@ -32,7 +39,7 @@ var rootCmd = &cobra.Command{
 	Use:   "codebench-mcp",
 	Short: "JavaScript Executor MCP Server",
 	Long: `A Model Context Protocol (MCP) server that provides JavaScript execution capabilities 
-with a Node.js-like environment including console, fs, http, timers, process, and require modules.`,
+with ski runtime including http, fetch, timers, buffer, crypto, and other modules.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		// Validate module configuration
 		if len(enabledModules) > 0 && len(disabledModules) > 0 {
@@ -64,8 +71,8 @@ with a Node.js-like environment including console, fs, http, timers, process, an
 				}
 			}
 		} else {
-			// Enable all modules by default
-			modulesToEnable = availableModules
+			// Enable default modules (same as NewJSHandler default)
+			modulesToEnable = []string{"http", "fetch", "timers", "buffer", "crypto"}
 		}
 
 		// Create server with module configuration

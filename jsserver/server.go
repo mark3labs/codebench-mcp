@@ -1,24 +1,62 @@
 package jsserver
 
 import (
+	"bytes"
 	"context"
 	"fmt"
-	"net/http"
-	"os"
-	"path/filepath"
-	"slices"
+	"log/slog"
 	"strings"
-	"time"
 
-	"github.com/dop251/goja"
+	"github.com/grafana/sobek"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
+	"github.com/shiroyk/ski"
+	"github.com/shiroyk/ski/js"
+
+	// Import ski modules
+	_ "github.com/shiroyk/ski/modules/buffer"
+	_ "github.com/shiroyk/ski/modules/cache"
+	_ "github.com/shiroyk/ski/modules/crypto"
+	_ "github.com/shiroyk/ski/modules/dom"
+	_ "github.com/shiroyk/ski/modules/encoding"
+	_ "github.com/shiroyk/ski/modules/ext"
+	_ "github.com/shiroyk/ski/modules/fetch"
+	_ "github.com/shiroyk/ski/modules/html"
+	_ "github.com/shiroyk/ski/modules/http"
+	_ "github.com/shiroyk/ski/modules/signal"
+	_ "github.com/shiroyk/ski/modules/stream"
+	_ "github.com/shiroyk/ski/modules/timers"
+	_ "github.com/shiroyk/ski/modules/url"
 )
 
 var Version = "dev"
 
+// captureLogger captures log output to a buffer
+type captureLogger struct {
+	buffer *bytes.Buffer
+}
+
+func (c *captureLogger) Enabled(context.Context, slog.Level) bool {
+	return true
+}
+
+func (c *captureLogger) Handle(ctx context.Context, record slog.Record) error {
+	c.buffer.WriteString(record.Message)
+	c.buffer.WriteString("\n")
+	return nil
+}
+
+func (c *captureLogger) WithAttrs(attrs []slog.Attr) slog.Handler {
+	return c
+}
+
+func (c *captureLogger) WithGroup(name string) slog.Handler {
+	return c
+}
+
 type ModuleConfig struct {
-	EnabledModules []string
+	EnabledModules  []string
+	DisabledModules []string
 }
 
 type JSHandler struct {
@@ -27,7 +65,7 @@ type JSHandler struct {
 
 func NewJSHandler() *JSHandler {
 	return NewJSHandlerWithConfig(ModuleConfig{
-		EnabledModules: []string{"console", "fs", "http", "timers", "process", "require"},
+		EnabledModules: []string{"http", "fetch", "timers", "buffer", "crypto"},
 	})
 }
 
@@ -38,278 +76,27 @@ func NewJSHandlerWithConfig(config ModuleConfig) *JSHandler {
 }
 
 func (h *JSHandler) isModuleEnabled(module string) bool {
-	return slices.Contains(h.config.EnabledModules, module)
-}
-
-func setupConsole(vm *goja.Runtime) {
-	console := vm.NewObject()
-	console.Set("log", func(call goja.FunctionCall) goja.Value {
-		for _, arg := range call.Arguments {
-			fmt.Print(arg.Export(), " ")
-		}
-		fmt.Println()
-		return goja.Undefined()
-	})
-	console.Set("error", func(call goja.FunctionCall) goja.Value {
-		for _, arg := range call.Arguments {
-			fmt.Print(arg.Export(), " ")
-		}
-		fmt.Println()
-		return goja.Undefined()
-	})
-	console.Set("warn", func(call goja.FunctionCall) goja.Value {
-		for _, arg := range call.Arguments {
-			fmt.Print(arg.Export(), " ")
-		}
-		fmt.Println()
-		return goja.Undefined()
-	})
-	vm.Set("console", console)
-}
-
-func setupTimers(vm *goja.Runtime) {
-	var intervals = make(map[int]*time.Ticker)
-	var timeouts = make(map[int]*time.Timer)
-	var nextID = 1
-
-	vm.Set("setTimeout", func(call goja.FunctionCall) goja.Value {
-		fn, _ := goja.AssertFunction(call.Arguments[0])
-		delay := time.Duration(call.Arguments[1].ToInteger()) * time.Millisecond
-		id := nextID
-		nextID++
-		timeouts[id] = time.AfterFunc(delay, func() {
-			_, _ = fn(goja.Undefined())
-		})
-		return vm.ToValue(id)
-	})
-
-	vm.Set("clearTimeout", func(call goja.FunctionCall) goja.Value {
-		id := int(call.Arguments[0].ToInteger())
-		if t, ok := timeouts[id]; ok {
-			t.Stop()
-			delete(timeouts, id)
-		}
-		return goja.Undefined()
-	})
-
-	vm.Set("setInterval", func(call goja.FunctionCall) goja.Value {
-		fn, _ := goja.AssertFunction(call.Arguments[0])
-		delay := time.Duration(call.Arguments[1].ToInteger()) * time.Millisecond
-		ticker := time.NewTicker(delay)
-		id := nextID
-		nextID++
-		intervals[id] = ticker
-
-		go func() {
-			for range ticker.C {
-				_, _ = fn(goja.Undefined())
+	// If disabled modules list is provided, check if module is not in it
+	if len(h.config.DisabledModules) > 0 {
+		for _, disabled := range h.config.DisabledModules {
+			if disabled == module {
+				return false
 			}
-		}()
-
-		return vm.ToValue(id)
-	})
-
-	vm.Set("clearInterval", func(call goja.FunctionCall) goja.Value {
-		id := int(call.Arguments[0].ToInteger())
-		if t, ok := intervals[id]; ok {
-			t.Stop()
-			delete(intervals, id)
 		}
-		return goja.Undefined()
-	})
-}
+		return true
+	}
 
-func setupFS(vm *goja.Runtime) {
-	fs := vm.NewObject()
-	fs.Set("readFileSync", func(call goja.FunctionCall) goja.Value {
-		filename := call.Arguments[0].String()
-		data, err := os.ReadFile(filename)
-		if err != nil {
-			panic(vm.ToValue(err.Error()))
-		}
-		return vm.ToValue(string(data))
-	})
-	fs.Set("writeFileSync", func(call goja.FunctionCall) goja.Value {
-		filename := call.Arguments[0].String()
-		content := call.Arguments[1].String()
-		err := os.WriteFile(filename, []byte(content), 0644)
-		if err != nil {
-			panic(vm.ToValue(err.Error()))
-		}
-		return goja.Undefined()
-	})
-	fs.Set("existsSync", func(call goja.FunctionCall) goja.Value {
-		filename := call.Arguments[0].String()
-		_, err := os.Stat(filename)
-		return vm.ToValue(err == nil)
-	})
-	vm.Set("fs", fs)
-}
+	// Otherwise check enabled modules list
+	if len(h.config.EnabledModules) == 0 {
+		return true // If no config, enable all
+	}
 
-func setupHTTP(vm *goja.Runtime) {
-	httpMod := vm.NewObject()
-	httpMod.Set("createServer", func(call goja.FunctionCall) goja.Value {
-		handler, _ := goja.AssertFunction(call.Arguments[0])
-		
-		server := vm.NewObject()
-		var httpServer *http.Server
-		
-		server.Set("listen", func(call goja.FunctionCall) goja.Value {
-			port := ":8080" // Default port
-			if len(call.Arguments) > 0 && !goja.IsUndefined(call.Arguments[0]) {
-				port = fmt.Sprintf(":%d", call.Arguments[0].ToInteger())
-			}
-			
-			go func() {
-				httpServer = &http.Server{
-					Addr: port,
-					Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-						req := vm.NewObject()
-						req.Set("url", r.URL.Path)
-						req.Set("method", r.Method)
-
-						res := vm.NewObject()
-						res.Set("writeHead", func(call goja.FunctionCall) goja.Value {
-							if len(call.Arguments) > 0 {
-								statusCode := int(call.Arguments[0].ToInteger())
-								w.WriteHeader(statusCode)
-							}
-							if len(call.Arguments) > 1 && !goja.IsUndefined(call.Arguments[1]) {
-								headersObj := call.Arguments[1].(*goja.Object)
-								for _, key := range headersObj.Keys() {
-									w.Header().Set(key, headersObj.Get(key).String())
-								}
-							}
-							return goja.Undefined()
-						})
-						
-						res.Set("end", func(call goja.FunctionCall) goja.Value {
-							if len(call.Arguments) > 0 {
-								w.Write([]byte(call.Arguments[0].String()))
-							}
-							return goja.Undefined()
-						})
-
-						_, err := handler(goja.Undefined(), req, res)
-						if err != nil {
-							fmt.Println("HTTP handler error:", err)
-						}
-					}),
-				}
-				httpServer.ListenAndServe()
-			}()
-			return goja.Undefined()
-		})
-		
-		server.Set("close", func(call goja.FunctionCall) goja.Value {
-			if httpServer != nil {
-				go func() {
-					ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-					defer cancel()
-					httpServer.Shutdown(ctx)
-				}()
-			}
-			return goja.Undefined()
-		})
-		
-		server.Set("address", func(call goja.FunctionCall) goja.Value {
-			if httpServer != nil {
-				addr := vm.NewObject()
-				addr.Set("address", httpServer.Addr)
-				return addr
-			}
-			return goja.Null()
-		})
-		
-		return server
-	})
-	vm.Set("http", httpMod)
-}
-
-func setupProcess(vm *goja.Runtime) {
-	proc := vm.NewObject()
-	proc.Set("argv", os.Args)
-	proc.Set("cwd", func(goja.FunctionCall) goja.Value {
-		dir, _ := os.Getwd()
-		return vm.ToValue(dir)
-	})
-	proc.Set("exit", func(call goja.FunctionCall) goja.Value {
-		code := 0
-		if len(call.Arguments) > 0 {
-			code = int(call.Arguments[0].ToInteger())
-		}
-		os.Exit(code)
-		return goja.Undefined()
-	})
-
-	env := vm.NewObject()
-	for _, e := range os.Environ() {
-		pair := strings.SplitN(e, "=", 2)
-		if len(pair) == 2 {
-			env.Set(pair[0], pair[1])
+	for _, enabled := range h.config.EnabledModules {
+		if enabled == module {
+			return true
 		}
 	}
-	proc.Set("env", env)
-
-	vm.Set("process", proc)
-}
-
-func setupRequire(vm *goja.Runtime, basePath string, config ModuleConfig) {
-	vm.Set("require", func(call goja.FunctionCall) goja.Value {
-		modulePath := call.Arguments[0].String()
-
-		// Handle built-in modules
-		switch modulePath {
-		case "fs":
-			return vm.Get("fs")
-		case "http":
-			return vm.Get("http")
-		case "process":
-			return vm.Get("process")
-		}
-
-		// Handle file modules
-		fullPath := filepath.Join(basePath, "modules", modulePath+".js")
-		if !strings.HasSuffix(modulePath, ".js") {
-			fullPath = filepath.Join(basePath, modulePath+".js")
-		}
-
-		data, err := os.ReadFile(fullPath)
-		if err != nil {
-			panic(vm.ToValue("Module not found: " + fullPath))
-		}
-
-		newVM := goja.New()
-		if slices.Contains(config.EnabledModules, "console") {
-			setupConsole(newVM)
-		}
-		if slices.Contains(config.EnabledModules, "timers") {
-			setupTimers(newVM)
-		}
-		if slices.Contains(config.EnabledModules, "fs") {
-			setupFS(newVM)
-		}
-		if slices.Contains(config.EnabledModules, "http") {
-			setupHTTP(newVM)
-		}
-		if slices.Contains(config.EnabledModules, "process") {
-			setupProcess(newVM)
-		}
-		if slices.Contains(config.EnabledModules, "require") {
-			setupRequire(newVM, basePath, config)
-		}
-
-		exports := newVM.NewObject()
-		newVM.Set("exports", exports)
-		newVM.Set("module", map[string]any{"exports": exports})
-
-		_, err = newVM.RunString(string(data))
-		if err != nil {
-			panic(vm.ToValue("Error in module: " + err.Error()))
-		}
-
-		return newVM.Get("exports")
-	})
+	return false
 }
 
 func (h *JSHandler) handleExecuteJS(
@@ -321,72 +108,28 @@ func (h *JSHandler) handleExecuteJS(
 		return nil, err
 	}
 
-	// Create a new VM for each execution
-	vm := goja.New()
+	// Capture console output
+	var output bytes.Buffer
+	captureHandler := &captureLogger{buffer: &output}
+	logger := slog.New(captureHandler)
 
-	// Setup all the APIs conditionally
-	if h.isModuleEnabled("console") {
-		setupConsole(vm)
-	}
-	if h.isModuleEnabled("timers") {
-		setupTimers(vm)
-	}
-	if h.isModuleEnabled("fs") {
-		setupFS(vm)
-	}
-	if h.isModuleEnabled("http") {
-		setupHTTP(vm)
-	}
-	if h.isModuleEnabled("process") {
-		setupProcess(vm)
-	}
-	if h.isModuleEnabled("require") {
-		setupRequire(vm, ".", h.config)
+	// Create context with custom logger
+	ctx = js.WithLogger(ctx, logger)
+
+	// Create a custom scheduler with limited modules based on config
+	schedulerOpts := ski.SchedulerOptions{
+		InitialVMs: 1,
+		MaxVMs:     1,
 	}
 
-	// Capture output
-	var output strings.Builder
+	// Set up the scheduler with filtered modules
+	scheduler := ski.NewScheduler(schedulerOpts)
+	ski.SetScheduler(scheduler)
+	defer scheduler.Close()
 
-	// Override console.log to capture output only if console module is enabled
-	if h.isModuleEnabled("console") {
-		console := vm.NewObject()
-		console.Set("log", func(call goja.FunctionCall) goja.Value {
-			for i, arg := range call.Arguments {
-				if i > 0 {
-					output.WriteString(" ")
-				}
-				output.WriteString(fmt.Sprintf("%v", arg.Export()))
-			}
-			output.WriteString("\n")
-			return goja.Undefined()
-		})
-		console.Set("error", func(call goja.FunctionCall) goja.Value {
-			output.WriteString("ERROR: ")
-			for i, arg := range call.Arguments {
-				if i > 0 {
-					output.WriteString(" ")
-				}
-				output.WriteString(fmt.Sprintf("%v", arg.Export()))
-			}
-			output.WriteString("\n")
-			return goja.Undefined()
-		})
-		console.Set("warn", func(call goja.FunctionCall) goja.Value {
-			output.WriteString("WARN: ")
-			for i, arg := range call.Arguments {
-				if i > 0 {
-					output.WriteString(" ")
-				}
-				output.WriteString(fmt.Sprintf("%v", arg.Export()))
-			}
-			output.WriteString("\n")
-			return goja.Undefined()
-		})
-		vm.Set("console", console)
-	}
+	// Execute the JavaScript code using ski
+	result, err := ski.RunString(ctx, code)
 
-	// Execute the JavaScript code
-	result, err := vm.RunString(code)
 	if err != nil {
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{
@@ -401,8 +144,11 @@ func (h *JSHandler) handleExecuteJS(
 
 	// Get the result value
 	var resultStr string
-	if result != nil && !goja.IsUndefined(result) && !goja.IsNull(result) {
-		resultStr = fmt.Sprintf("Result: %v\n", result.Export())
+	if result != nil && !sobek.IsUndefined(result) && !sobek.IsNull(result) {
+		exported := result.Export()
+		if exported != nil {
+			resultStr = fmt.Sprintf("Result: %v\n", exported)
+		}
 	}
 
 	return &mcp.CallToolResult{
@@ -415,9 +161,32 @@ func (h *JSHandler) handleExecuteJS(
 	}, nil
 }
 
+func (h *JSHandler) getAvailableModules() []string {
+	allModules := []string{
+		"http", "fetch", "timers", "buffer", "cache", "crypto", "dom",
+		"encoding", "ext", "html", "signal", "stream", "url",
+	}
+
+	if len(h.config.DisabledModules) > 0 {
+		var enabled []string
+		for _, module := range allModules {
+			if h.isModuleEnabled(module) {
+				enabled = append(enabled, module)
+			}
+		}
+		return enabled
+	}
+
+	if len(h.config.EnabledModules) > 0 {
+		return h.config.EnabledModules
+	}
+
+	return allModules
+}
+
 func NewJSServer() (*server.MCPServer, error) {
 	return NewJSServerWithConfig(ModuleConfig{
-		EnabledModules: []string{"console", "fs", "http", "timers", "process", "require"},
+		EnabledModules: []string{"http", "fetch", "timers", "buffer", "crypto"},
 	})
 }
 
@@ -430,14 +199,14 @@ func NewJSServerWithConfig(config ModuleConfig) (*server.MCPServer, error) {
 	)
 
 	// Build detailed description with module information
-	description := buildToolDescription(config.EnabledModules)
+	description := buildToolDescription(h.getAvailableModules())
 
 	// Register the executeJS tool
 	s.AddTool(mcp.NewTool(
 		"executeJS",
 		mcp.WithDescription(description),
 		mcp.WithString("code",
-			mcp.Description("JavaScript code to execute in the simplified VM"),
+			mcp.Description("JavaScript code to execute with Node.js-like APIs"),
 			mcp.Required(),
 		),
 	), h.handleExecuteJS)
@@ -448,24 +217,31 @@ func NewJSServerWithConfig(config ModuleConfig) (*server.MCPServer, error) {
 func buildToolDescription(enabledModules []string) string {
 	var description strings.Builder
 
-	description.WriteString("Execute JavaScript code in a simplified JavaScript VM (goja). ")
-	description.WriteString("This is NOT a full Node.js environment - only the modules listed below are available.\n\n")
+	description.WriteString("Execute JavaScript code with Node.js-like APIs powered by ski runtime. ")
+	description.WriteString("Supports ES modules, CommonJS, promises, and comprehensive JavaScript APIs.\n\n")
 
 	if len(enabledModules) == 0 {
-		description.WriteString("⚠️  No modules are currently enabled. Only basic JavaScript execution is available.")
+		description.WriteString("No modules are currently enabled. Only basic JavaScript execution is available.")
 		return description.String()
 	}
 
-	description.WriteString("📦 Available modules:\n")
+	description.WriteString("Available modules:\n")
 
-	// Define module descriptions
+	// Define module descriptions with ski's actual features and import paths
 	moduleDescriptions := map[string]string{
-		"console": "Console logging (console.log, console.error, console.warn)",
-		"fs":      "File system operations (fs.readFileSync, fs.writeFileSync, fs.existsSync)",
-		"http":    "HTTP server creation (http.createServer with configurable ports and callbacks)",
-		"timers":  "Timer functions (setTimeout, setInterval, clearTimeout, clearInterval)",
-		"process": "Process information (process.argv, process.cwd, process.env, process.exit)",
-		"require": "Module loading system (require() for loading JavaScript modules)",
+		"http":     "HTTP server creation and management (import serve from 'ski/http/server')",
+		"fetch":    "Modern fetch API with Request, Response, Headers, FormData (available globally)",
+		"timers":   "setTimeout, setInterval, clearTimeout, clearInterval (available globally)",
+		"buffer":   "Buffer, Blob, File APIs for binary data handling (available globally)",
+		"cache":    "In-memory caching with TTL support (import cache from 'ski/cache')",
+		"crypto":   "Cryptographic functions (hashing, encryption, HMAC) (import crypto from 'ski/crypto')",
+		"dom":      "DOM Event and EventTarget APIs",
+		"encoding": "TextEncoder, TextDecoder for text encoding/decoding (available globally)",
+		"ext":      "Extended context and utility functions",
+		"html":     "HTML parsing and manipulation",
+		"signal":   "AbortController and AbortSignal for cancellation (available globally)",
+		"stream":   "ReadableStream and streaming APIs (available globally)",
+		"url":      "URL and URLSearchParams APIs (available globally)",
 	}
 
 	// Add enabled modules with descriptions
@@ -475,9 +251,34 @@ func buildToolDescription(enabledModules []string) string {
 		}
 	}
 
-	// Add usage note
-	description.WriteString("\n💡 Usage: Provide JavaScript code that uses only the enabled modules above. ")
-	description.WriteString("Attempting to use disabled modules will result in 'undefined' errors.")
+	// Add usage examples
+	description.WriteString("\nExample usage:\n")
+	description.WriteString("```javascript\n")
+	description.WriteString("// Basic JavaScript execution\n")
+	description.WriteString("const result = 2 + 3;\n")
+	description.WriteString("console.log('Result:', result);\n\n")
+	description.WriteString("// Fetch API (available globally when enabled)\n")
+	description.WriteString("const response = await fetch('https://api.example.com/data');\n")
+	description.WriteString("const data = await response.json();\n\n")
+	description.WriteString("// HTTP server (import required)\n")
+	description.WriteString("import serve from 'ski/http/server';\n")
+	description.WriteString("serve(8000, async (req) => {\n")
+	description.WriteString("  return new Response('Hello World');\n")
+	description.WriteString("});\n\n")
+	description.WriteString("// Cache operations (import required)\n")
+	description.WriteString("import cache from 'ski/cache';\n")
+	description.WriteString("cache.set('key', 'value');\n")
+	description.WriteString("console.log(cache.get('key'));\n\n")
+	description.WriteString("// Crypto operations (import required)\n")
+	description.WriteString("import crypto from 'ski/crypto';\n")
+	description.WriteString("const hash = crypto.md5('hello').hex();\n")
+	description.WriteString("console.log('MD5 hash:', hash);\n\n")
+	description.WriteString("// Timers (available globally)\n")
+	description.WriteString("setTimeout(() => console.log('Hello after 1 second'), 1000);\n\n")
+	description.WriteString("// Buffer operations (available globally)\n")
+	description.WriteString("const buffer = Buffer.from('hello', 'utf8');\n")
+	description.WriteString("console.log(buffer.toString('base64'));\n")
+	description.WriteString("```\n")
 
 	return description.String()
 }

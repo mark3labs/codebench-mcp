@@ -15,65 +15,60 @@ func TestBuildToolDescription(t *testing.T) {
 	}{
 		{
 			name:           "All modules enabled",
-			enabledModules: []string{"console", "fs", "http", "timers", "process", "require"},
+			enabledModules: []string{"http", "fetch", "timers", "buffer", "crypto"},
 			expectedContent: []string{
-				"simplified JavaScript VM (goja)",
-				"NOT a full Node.js environment",
-				"📦 Available modules:",
-				"• console: Console logging",
-				"• fs: File system operations",
-				"• http: HTTP server creation",
-				"• timers: Timer functions",
-				"• process: Process information",
-				"• require: Module loading system",
-				"💡 Usage:",
-				"'undefined' errors",
+				"ski runtime",
+				"Node.js-like APIs",
+				"Available modules:",
+				"• http: HTTP server creation and management",
+				"• fetch: Modern fetch API with Request, Response, Headers, FormData",
+				"• timers: setTimeout, setInterval, clearTimeout, clearInterval",
+				"• buffer: Buffer, Blob, File APIs for binary data handling",
+				"• crypto: Cryptographic functions (hashing, encryption, HMAC)",
+				"Example usage:",
 			},
 		},
 		{
-			name:           "Only console and timers",
-			enabledModules: []string{"console", "timers"},
+			name:           "Only http and fetch",
+			enabledModules: []string{"http", "fetch"},
 			expectedContent: []string{
-				"simplified JavaScript VM (goja)",
-				"📦 Available modules:",
-				"• console: Console logging",
-				"• timers: Timer functions",
-				"💡 Usage:",
+				"ski runtime",
+				"Available modules:",
+				"• http: HTTP server creation and management",
+				"• fetch: Modern fetch API with Request, Response, Headers, FormData",
+				"Example usage:",
 			},
 			notExpected: []string{
-				"• fs:",
-				"• http:",
-				"• process:",
-				"• require:",
+				"• timers:",
+				"• buffer:",
+				"• crypto:",
 			},
 		},
 		{
 			name:           "No modules enabled",
 			enabledModules: []string{},
 			expectedContent: []string{
-				"simplified JavaScript VM (goja)",
-				"NOT a full Node.js environment",
-				"⚠️  No modules are currently enabled",
+				"ski runtime",
+				"No modules are currently enabled",
 				"Only basic JavaScript execution is available",
 			},
 			notExpected: []string{
-				"📦 Available modules:",
-				"💡 Usage:",
+				"Available modules:",
+				"Usage:",
 			},
 		},
 		{
-			name:           "Only timers enabled",
-			enabledModules: []string{"timers"},
+			name:           "Only http enabled",
+			enabledModules: []string{"http"},
 			expectedContent: []string{
-				"📦 Available modules:",
-				"• timers: Timer functions",
+				"Available modules:",
+				"• http: HTTP server creation and management",
 			},
 			notExpected: []string{
-				"• console:",
-				"• fs:",
-				"• http:",
-				"• process:",
-				"• require:",
+				"• fetch:",
+				"• timers:",
+				"• buffer:",
+				"• crypto:",
 			},
 		},
 	}
@@ -97,7 +92,7 @@ func TestBuildToolDescription(t *testing.T) {
 
 func TestToolDescriptionDynamicUpdate(t *testing.T) {
 	// Test that different configurations produce different descriptions
-	config1 := ModuleConfig{EnabledModules: []string{"console", "fs"}}
+	config1 := ModuleConfig{EnabledModules: []string{"http", "fetch"}}
 	config2 := ModuleConfig{EnabledModules: []string{"timers"}}
 
 	server1, err := NewJSServerWithConfig(config1)
@@ -114,13 +109,13 @@ func TestToolDescriptionDynamicUpdate(t *testing.T) {
 
 	assert.NotEqual(t, desc1, desc2, "Different module configurations should produce different descriptions")
 
-	// Config1 should mention console and fs
-	assert.Contains(t, desc1, "• console:")
-	assert.Contains(t, desc1, "• fs:")
+	// Config1 should mention http and fetch
+	assert.Contains(t, desc1, "• http:")
+	assert.Contains(t, desc1, "• fetch:")
 	assert.NotContains(t, desc1, "• timers:")
 
 	// Config2 should mention timers
 	assert.Contains(t, desc2, "• timers:")
-	assert.NotContains(t, desc2, "• console:")
-	assert.NotContains(t, desc2, "• fs:")
+	assert.NotContains(t, desc2, "• http:")
+	assert.NotContains(t, desc2, "• fetch:")
 }
