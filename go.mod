@@ -4,9 +4,9 @@ go 1.23.10
 
 require (
 	github.com/dop251/goja v0.0.0-20241024094426-79f3a7efcdbd
-	github.com/mark3labs/mcp-go v0.31.0
+	github.com/mark3labs/mcp-go v0.32.0
 	github.com/spf13/cobra v1.9.1
-	github.com/stretchr/testify v1.9.0
+	github.com/stretchr/testify v1.10.0
 )
 
 require (
