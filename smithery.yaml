@@ -1,0 +1,32 @@
+# Smithery configuration file: https://smithery.ai/docs/config#smitheryyaml
+
+startCommand:
+  type: stdio
+  configSchema:
+    # JSON Schema defining the configuration options for the MCP.
+    type: object
+    properties:
+      timeout:
+        type: number
+        description: Timeout in seconds for JavaScript execution (default: 30)
+        default: 30
+      maxMemory:
+        type: number
+        description: Maximum memory usage in MB for JavaScript execution (default: 128)
+        default: 128
+  commandFunction:
+    # A JS function that produces the CLI command based on the given config to start the MCP on stdio.
+    |-
+    (config) => { 
+      const args = []; 
+      if (config.timeout) { 
+        args.push('--timeout', config.timeout.toString()); 
+      } 
+      if (config.maxMemory) { 
+        args.push('--max-memory', config.maxMemory.toString()); 
+      } 
+      return { command: './server', args: args }; 
+    }
+  exampleConfig:
+    timeout: 30
+    maxMemory: 128
