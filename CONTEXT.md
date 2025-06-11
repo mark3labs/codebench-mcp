@@ -6,8 +6,15 @@ An MCP server that provides JavaScript execution capabilities with Node.js-like 
 
 ### executeJS
 - Execute JavaScript code with full Node.js-like environment
-- Includes: console, fs, http, timers (setTimeout/setInterval), process, and require
+- Includes: console, fs, http, fetch (with promises), timers (setTimeout/setInterval), process, and require
 - Parameters: `code` (required): JavaScript code to execute
+- Modules are configurable via CLI flags
+
+## CLI Usage
+- `codebench-mcp` - Run with all modules enabled
+- `codebench-mcp --enabled-modules console,fs,timers` - Enable only specific modules
+- `codebench-mcp --disabled-modules http,fetch` - Disable specific modules
+- Available modules: console, fs, http, fetch, timers, process, require
 
 ## Build/Test Commands
 - `go build ./...` - Build all packages
