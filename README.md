@@ -7,13 +7,13 @@ This MCP server provides JavaScript execution capabilities with ski runtime.
 The `executeJS` tool provides:
 
 - **Console API**: `console.log()`, `console.error()`, `console.warn()` (built-in)
-- **HTTP Server**: `http.createServer()` with request/response handling
-- **HTTP Client**: `http.request()` for HTTP requests
-- **Fetch API**: Modern `fetch()` with Request, Response, Headers, FormData
-- **Timers**: `setTimeout()`, `setInterval()`, `clearTimeout()`, `clearInterval()`
-- **Buffer**: Buffer, Blob, File APIs for binary data handling
-- **Crypto**: Cryptographic functions (hashing, encryption, HMAC)
-- **Additional modules**: cache, dom, encoding, ext, html, signal, stream, url
+- **HTTP Server**: `serve()` for server creation (via `require('ski/http/server')`)
+- **Fetch API**: Modern `fetch()` with Request, Response, Headers, FormData (global)
+- **Timers**: `setTimeout()`, `setInterval()`, `clearTimeout()`, `clearInterval()` (global)
+- **Buffer**: Buffer, Blob, File APIs for binary data handling (global)
+- **Crypto**: Cryptographic functions - hashing, encryption, HMAC (via `require('ski/crypto')`)
+- **Cache**: In-memory caching with TTL support (via `require('ski/cache')`)
+- **Additional modules**: dom, encoding (global), ext, html, signal (global), stream (global), url (global)
 
 ## Getting Started
 
@@ -226,19 +226,19 @@ console.log('Result:', result);
 const response = await fetch('https://api.example.com/data');
 const data = await response.json();
 
-// HTTP server (import required)
-import serve from 'ski/http/server';
+// HTTP server (require import)
+const serve = require('ski/http/server');
 serve(8000, async (req) => {
   return new Response('Hello World');
 });
 
-// Cache operations (import required)
-import cache from 'ski/cache';
+// Cache operations (require import)
+const cache = require('ski/cache');
 cache.set('key', 'value');
 console.log(cache.get('key'));
 
-// Crypto operations (import required)
-import crypto from 'ski/crypto';
+// Crypto operations (require import)
+const crypto = require('ski/crypto');
 const hash = crypto.md5('hello').hex();
 console.log('MD5 hash:', hash);
 
