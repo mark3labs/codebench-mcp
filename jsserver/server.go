@@ -131,6 +131,9 @@ func (h *JSHandler) handleServerCode(ctx context.Context, code string) (*mcp.Cal
 	// Create context with custom logger
 	ctx = js.WithLogger(ctx, logger)
 
+	// Channel to signal if a server was actually started
+	serverStarted := make(chan bool, 1)
+
 	// Run the server code in a goroutine
 	go func() {
 		// Create a custom scheduler for this server
@@ -147,31 +150,99 @@ func (h *JSHandler) handleServerCode(ctx context.Context, code string) (*mcp.Cal
 
 		// Override the HTTP server module if enabled
 		if h.isModuleEnabled("http") {
-			h.setupHTTPModule(vm)
+			h.setupHTTPModuleWithCallback(vm, serverStarted)
 		}
 
-		// Execute the JavaScript code - this will block until server stops
+		// Execute the JavaScript code
 		_, err := vm.RunString(context.Background(), code)
 		if err != nil {
 			// Log error but don't return it since we're in a goroutine
 			logger.Error("Server execution error", "error", err)
+			serverStarted <- false
+			return
 		}
 		
-		// Keep the goroutine alive indefinitely
-		select {}
+		// If no server was started, signal false and let goroutine exit
+		select {
+		case serverStarted <- false:
+		default:
+			// Channel already has a value, meaning a server was started
+		}
+		
+		// Check if we should keep the goroutine alive
+		select {
+		case started := <-serverStarted:
+			if started {
+				// Keep the goroutine alive indefinitely for HTTP servers
+				select {}
+			}
+			// Otherwise, let the goroutine exit naturally
+		default:
+			// No signal received, let goroutine exit
+		}
 	}()
 
-	// Give the server more time to start
+	// Give the server time to start
 	time.Sleep(500 * time.Millisecond)
 
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{
 			mcp.TextContent{
 				Type: "text",
-				Text: fmt.Sprintf("Server started in background. Check console output:\n%s", output.String()),
+				Text: fmt.Sprintf("Server code executed in background. Check console output:\n%s", output.String()),
 			},
 		},
 	}, nil
+}
+
+func (h *JSHandler) setupHTTPModuleWithCallback(vm js.VM, serverStarted chan bool) {
+	// Create a custom module loader that wraps the HTTP server
+	vm.Runtime().Set("__originalRequire", vm.Runtime().Get("require"))
+	vm.Runtime().Set("require", vm.Runtime().ToValue(func(call sobek.FunctionCall) sobek.Value {
+		moduleName := call.Argument(0).String()
+		
+		// If requesting the HTTP server module, return our wrapped version
+		if moduleName == "ski/http/server" {
+			httpServer := &httpmodule.Server{}
+			value, err := httpServer.Instantiate(vm.Runtime())
+			if err != nil {
+				panic(vm.Runtime().NewGoError(err))
+			}
+			
+			// Wrap the serve function to detect when a server is actually started
+			wrappedServe := vm.Runtime().ToValue(func(call sobek.FunctionCall) sobek.Value {
+				// Call the original serve function
+				serveFunc, ok := sobek.AssertFunction(value)
+				if !ok {
+					panic(vm.Runtime().NewTypeError("serve is not a function"))
+				}
+				
+				result, err := serveFunc(sobek.Undefined(), call.Arguments...)
+				if err != nil {
+					panic(vm.Runtime().NewGoError(err))
+				}
+				
+				// Signal that a server was started
+				select {
+				case serverStarted <- true:
+				default:
+					// Channel already has a value
+				}
+				
+				return result
+			})
+			
+			return wrappedServe
+		}
+		
+		// For all other modules, use the original require
+		originalRequire, _ := sobek.AssertFunction(vm.Runtime().Get("__originalRequire"))
+		result, err := originalRequire(sobek.Undefined(), call.Arguments...)
+		if err != nil {
+			panic(vm.Runtime().NewGoError(err))
+		}
+		return result
+	}))
 }
 
 func (h *JSHandler) handleRegularCode(ctx context.Context, code string) (*mcp.CallToolResult, error) {
