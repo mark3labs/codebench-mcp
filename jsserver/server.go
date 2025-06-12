@@ -105,11 +105,76 @@ func (h *JSHandler) handleExecuteJS(
 	ctx context.Context,
 	request mcp.CallToolRequest,
 ) (*mcp.CallToolResult, error) {
-	code, err := request.RequireString("code")
+	code, err := request.RequireString("scriptCode")
 	if err != nil {
 		return nil, err
 	}
 
+	// Check if this looks like HTTP server code
+	isServerCode := strings.Contains(code, "serve(") || strings.Contains(code, "require('ski/http/server')")
+	
+	if isServerCode {
+		// For server code, run in a goroutine and return immediately
+		return h.handleServerCode(ctx, code)
+	} else {
+		// For regular code, run synchronously
+		return h.handleRegularCode(ctx, code)
+	}
+}
+
+func (h *JSHandler) handleServerCode(ctx context.Context, code string) (*mcp.CallToolResult, error) {
+	// Capture console output
+	var output bytes.Buffer
+	captureHandler := &captureLogger{buffer: &output}
+	logger := slog.New(captureHandler)
+
+	// Create context with custom logger
+	ctx = js.WithLogger(ctx, logger)
+
+	// Run the server code in a goroutine
+	go func() {
+		// Create a custom scheduler for this server
+		schedulerOpts := ski.SchedulerOptions{
+			InitialVMs: 1,
+			MaxVMs:     1,
+		}
+		scheduler := ski.NewScheduler(schedulerOpts)
+		ski.SetScheduler(scheduler)
+		defer scheduler.Close()
+
+		// Create a VM with proper module initialization
+		vm := js.NewVM()
+
+		// Override the HTTP server module if enabled
+		if h.isModuleEnabled("http") {
+			h.setupHTTPModule(vm)
+		}
+
+		// Execute the JavaScript code - this will block until server stops
+		_, err := vm.RunString(context.Background(), code)
+		if err != nil {
+			// Log error but don't return it since we're in a goroutine
+			logger.Error("Server execution error", "error", err)
+		}
+		
+		// Keep the goroutine alive indefinitely
+		select {}
+	}()
+
+	// Give the server more time to start
+	time.Sleep(500 * time.Millisecond)
+
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{
+			mcp.TextContent{
+				Type: "text",
+				Text: fmt.Sprintf("Server started in background. Check console output:\n%s", output.String()),
+			},
+		},
+	}, nil
+}
+
+func (h *JSHandler) handleRegularCode(ctx context.Context, code string) (*mcp.CallToolResult, error) {
 	// Capture console output
 	var output bytes.Buffer
 	captureHandler := &captureLogger{buffer: &output}
@@ -124,7 +189,6 @@ func (h *JSHandler) handleExecuteJS(
 		MaxVMs:     1,
 	}
 
-	// Set up the scheduler with filtered modules
 	scheduler := ski.NewScheduler(schedulerOpts)
 	ski.SetScheduler(scheduler)
 	defer scheduler.Close()
@@ -132,62 +196,13 @@ func (h *JSHandler) handleExecuteJS(
 	// Create a VM with proper module initialization
 	vm := js.NewVM()
 
-	// Override the HTTP server module to make it non-blocking if enabled
+	// Override the HTTP server module if enabled
 	if h.isModuleEnabled("http") {
-		// Create a custom module loader that wraps the HTTP server
-		vm.Runtime().Set("__originalRequire", vm.Runtime().Get("require"))
-		vm.Runtime().Set("require", vm.Runtime().ToValue(func(call sobek.FunctionCall) sobek.Value {
-			moduleName := call.Argument(0).String()
-			
-			// If requesting the HTTP server module, return our wrapped version
-			if moduleName == "ski/http/server" {
-				httpServer := &httpmodule.Server{}
-				value, err := httpServer.Instantiate(vm.Runtime())
-				if err != nil {
-					panic(vm.Runtime().NewGoError(err))
-				}
-				
-				// Wrap the serve function to automatically unref servers
-				wrappedServe := vm.Runtime().ToValue(func(call sobek.FunctionCall) sobek.Value {
-					// Call the original serve function
-					serveFunc, ok := sobek.AssertFunction(value)
-					if !ok {
-						panic(vm.Runtime().NewTypeError("serve is not a function"))
-					}
-					
-					result, err := serveFunc(sobek.Undefined(), call.Arguments...)
-					if err != nil {
-						panic(vm.Runtime().NewGoError(err))
-					}
-					
-					// If the result is a server object, unref it to prevent blocking
-					if server, ok := result.(*sobek.Object); ok {
-						if unref := server.Get("unref"); unref != nil {
-							if unrefFunc, ok := sobek.AssertFunction(unref); ok {
-								_, _ = unrefFunc(server)
-							}
-						}
-					}
-					
-					return result
-				})
-				
-				return wrappedServe
-			}
-			
-			// For all other modules, use the original require
-			originalRequire, _ := sobek.AssertFunction(vm.Runtime().Get("__originalRequire"))
-			result, err := originalRequire(sobek.Undefined(), call.Arguments...)
-			if err != nil {
-				panic(vm.Runtime().NewGoError(err))
-			}
-			return result
-		}))
+		h.setupHTTPModule(vm)
 	}
 
-	// Execute the JavaScript code using the VM with a timeout context
-	// This allows servers to start but doesn't block indefinitely
-	execCtx, cancel := context.WithTimeout(ctx, time.Second*5)
+	// Execute the JavaScript code with a timeout for regular code
+	execCtx, cancel := context.WithTimeout(ctx, time.Second*10)
 	defer cancel()
 	
 	result, err := vm.RunString(execCtx, code)
@@ -221,6 +236,34 @@ func (h *JSHandler) handleExecuteJS(
 			},
 		},
 	}, nil
+}
+
+func (h *JSHandler) setupHTTPModule(vm js.VM) {
+	// Create a custom module loader that wraps the HTTP server
+	vm.Runtime().Set("__originalRequire", vm.Runtime().Get("require"))
+	vm.Runtime().Set("require", vm.Runtime().ToValue(func(call sobek.FunctionCall) sobek.Value {
+		moduleName := call.Argument(0).String()
+		
+		// If requesting the HTTP server module, return our wrapped version
+		if moduleName == "ski/http/server" {
+			httpServer := &httpmodule.Server{}
+			value, err := httpServer.Instantiate(vm.Runtime())
+			if err != nil {
+				panic(vm.Runtime().NewGoError(err))
+			}
+			
+			// Don't wrap or unref - let the server run normally
+			return value
+		}
+		
+		// For all other modules, use the original require
+		originalRequire, _ := sobek.AssertFunction(vm.Runtime().Get("__originalRequire"))
+		result, err := originalRequire(sobek.Undefined(), call.Arguments...)
+		if err != nil {
+			panic(vm.Runtime().NewGoError(err))
+		}
+		return result
+	}))
 }
 
 func (h *JSHandler) getAvailableModules() []string {
@@ -260,8 +303,8 @@ func NewJSServerWithConfig(config ModuleConfig) (*server.MCPServer, error) {
 	s.AddTool(mcp.NewTool(
 		"executeJS",
 		mcp.WithDescription(description),
-		mcp.WithString("code",
-			mcp.Description("JavaScript code to execute with Node.js-like APIs"),
+		mcp.WithString("scriptCode",
+			mcp.Description("Complete JavaScript source code to execute in the ski runtime environment. This parameter accepts a full JavaScript program including variable declarations, function definitions, control flow statements, async/await operations, and module imports via require(). The code will be executed in a sandboxed environment with access to enabled ski modules. Supports modern JavaScript syntax (ES2020+) including arrow functions, destructuring, template literals, and promises. Use require() for module imports (e.g., 'const serve = require(\"ski/http/server\")') rather than ES6 import statements. The execution context includes a console object for output, and any returned values will be displayed along with console output. For HTTP servers, they will run in the background without blocking execution completion."),
 			mcp.Required(),
 		),
 	), h.handleExecuteJS)
