@@ -106,8 +106,11 @@ import (
 )
 
 func main() {
-	// Create the JS server
-	jsServer, err := jsserver.NewJSServer()
+	// Create the JS server with custom module configuration
+	config := jsserver.ModuleConfig{
+		EnabledModules: []string{"fetch", "crypto", "buffer"},
+	}
+	jsServer, err := jsserver.NewJSServerWithConfig(config)
 	if err != nil {
 		log.Fatalf("Failed to create server: %v", err)
 	}
