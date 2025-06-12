@@ -105,14 +105,14 @@ func (h *JSHandler) handleExecuteJS(
 	ctx context.Context,
 	request mcp.CallToolRequest,
 ) (*mcp.CallToolResult, error) {
-	code, err := request.RequireString("scriptCode")
+	code, err := request.RequireString("code")
 	if err != nil {
 		return nil, err
 	}
 
 	// Check if this looks like HTTP server code
 	isServerCode := strings.Contains(code, "serve(") || strings.Contains(code, "require('ski/http/server')")
-	
+
 	if isServerCode {
 		// For server code, run in a goroutine and return immediately
 		return h.handleServerCode(ctx, code)
@@ -161,14 +161,14 @@ func (h *JSHandler) handleServerCode(ctx context.Context, code string) (*mcp.Cal
 			serverStarted <- false
 			return
 		}
-		
+
 		// If no server was started, signal false and let goroutine exit
 		select {
 		case serverStarted <- false:
 		default:
 			// Channel already has a value, meaning a server was started
 		}
-		
+
 		// Check if we should keep the goroutine alive
 		select {
 		case started := <-serverStarted:
@@ -200,7 +200,7 @@ func (h *JSHandler) setupHTTPModuleWithCallback(vm js.VM, serverStarted chan boo
 	vm.Runtime().Set("__originalRequire", vm.Runtime().Get("require"))
 	vm.Runtime().Set("require", vm.Runtime().ToValue(func(call sobek.FunctionCall) sobek.Value {
 		moduleName := call.Argument(0).String()
-		
+
 		// If requesting the HTTP server module, return our wrapped version
 		if moduleName == "ski/http/server" {
 			httpServer := &httpmodule.Server{}
@@ -208,7 +208,7 @@ func (h *JSHandler) setupHTTPModuleWithCallback(vm js.VM, serverStarted chan boo
 			if err != nil {
 				panic(vm.Runtime().NewGoError(err))
 			}
-			
+
 			// Wrap the serve function to detect when a server is actually started
 			wrappedServe := vm.Runtime().ToValue(func(call sobek.FunctionCall) sobek.Value {
 				// Call the original serve function
@@ -216,25 +216,25 @@ func (h *JSHandler) setupHTTPModuleWithCallback(vm js.VM, serverStarted chan boo
 				if !ok {
 					panic(vm.Runtime().NewTypeError("serve is not a function"))
 				}
-				
+
 				result, err := serveFunc(sobek.Undefined(), call.Arguments...)
 				if err != nil {
 					panic(vm.Runtime().NewGoError(err))
 				}
-				
+
 				// Signal that a server was started
 				select {
 				case serverStarted <- true:
 				default:
 					// Channel already has a value
 				}
-				
+
 				return result
 			})
-			
+
 			return wrappedServe
 		}
-		
+
 		// For all other modules, use the original require
 		originalRequire, _ := sobek.AssertFunction(vm.Runtime().Get("__originalRequire"))
 		result, err := originalRequire(sobek.Undefined(), call.Arguments...)
@@ -275,7 +275,7 @@ func (h *JSHandler) handleRegularCode(ctx context.Context, code string) (*mcp.Ca
 	// Execute the JavaScript code with a timeout for regular code
 	execCtx, cancel := context.WithTimeout(ctx, time.Second*10)
 	defer cancel()
-	
+
 	result, err := vm.RunString(execCtx, code)
 
 	if err != nil {
@@ -314,7 +314,7 @@ func (h *JSHandler) setupHTTPModule(vm js.VM) {
 	vm.Runtime().Set("__originalRequire", vm.Runtime().Get("require"))
 	vm.Runtime().Set("require", vm.Runtime().ToValue(func(call sobek.FunctionCall) sobek.Value {
 		moduleName := call.Argument(0).String()
-		
+
 		// If requesting the HTTP server module, return our wrapped version
 		if moduleName == "ski/http/server" {
 			httpServer := &httpmodule.Server{}
@@ -322,11 +322,11 @@ func (h *JSHandler) setupHTTPModule(vm js.VM) {
 			if err != nil {
 				panic(vm.Runtime().NewGoError(err))
 			}
-			
+
 			// Don't wrap or unref - let the server run normally
 			return value
 		}
-		
+
 		// For all other modules, use the original require
 		originalRequire, _ := sobek.AssertFunction(vm.Runtime().Get("__originalRequire"))
 		result, err := originalRequire(sobek.Undefined(), call.Arguments...)
@@ -374,7 +374,7 @@ func NewJSServerWithConfig(config ModuleConfig) (*server.MCPServer, error) {
 	s.AddTool(mcp.NewTool(
 		"executeJS",
 		mcp.WithDescription(description),
-		mcp.WithString("scriptCode",
+		mcp.WithString("code",
 			mcp.Description("Complete JavaScript source code to execute in the ski runtime environment. This parameter accepts a full JavaScript program including variable declarations, function definitions, control flow statements, async/await operations, and module imports via require(). The code will be executed in a sandboxed environment with access to enabled ski modules. Supports modern JavaScript syntax (ES2020+) including arrow functions, destructuring, template literals, and promises. Use require() for module imports (e.g., 'const serve = require(\"ski/http/server\")') rather than ES6 import statements. The execution context includes a console object for output, and any returned values will be displayed along with console output. For HTTP servers, they will run in the background without blocking execution completion."),
 			mcp.Required(),
 		),
@@ -427,13 +427,13 @@ func buildToolDescription(enabledModules []string) string {
 	description.WriteString("// Basic JavaScript execution\n")
 	description.WriteString("const result = 2 + 3;\n")
 	description.WriteString("console.log('Result:', result);\n\n")
-	
+
 	// Create a set for faster lookup
 	enabledSet := make(map[string]bool)
 	for _, module := range enabledModules {
 		enabledSet[module] = true
 	}
-	
+
 	// Add examples only for enabled modules
 	if enabledSet["fetch"] {
 		description.WriteString("// Fetch API (available globally when enabled)\n")
@@ -441,7 +441,7 @@ func buildToolDescription(enabledModules []string) string {
 		description.WriteString("const data = await response.json();\n")
 		description.WriteString("console.log(data);\n\n")
 	}
-	
+
 	if enabledSet["http"] {
 		description.WriteString("// HTTP server (require import - NOT import statement)\n")
 		description.WriteString("const serve = require('ski/http/server');\n")
@@ -450,44 +450,44 @@ func buildToolDescription(enabledModules []string) string {
 		description.WriteString("});\n")
 		description.WriteString("console.log('Server running at:', server.url);\n\n")
 	}
-	
+
 	if enabledSet["cache"] {
 		description.WriteString("// Cache operations (require import)\n")
 		description.WriteString("const cache = require('ski/cache');\n")
 		description.WriteString("cache.set('key', 'value');\n")
 		description.WriteString("console.log(cache.get('key'));\n\n")
 	}
-	
+
 	if enabledSet["crypto"] {
 		description.WriteString("// Crypto operations (require import)\n")
 		description.WriteString("const crypto = require('ski/crypto');\n")
 		description.WriteString("const hash = crypto.md5('hello').hex();\n")
 		description.WriteString("console.log('MD5 hash:', hash);\n\n")
 	}
-	
+
 	if enabledSet["timers"] {
 		description.WriteString("// Timers (available globally)\n")
 		description.WriteString("setTimeout(() => {\n")
 		description.WriteString("  console.log('Hello after 1 second');\n")
 		description.WriteString("}, 1000);\n\n")
 	}
-	
+
 	if enabledSet["buffer"] {
 		description.WriteString("// Buffer operations (available globally)\n")
 		description.WriteString("const buffer = Buffer.from('hello', 'utf8');\n")
 		description.WriteString("console.log(buffer.toString('base64'));\n\n")
 	}
-	
+
 	description.WriteString("```\n")
 	description.WriteString("\nImportant notes:\n")
 	description.WriteString("• Use require() for modules, NOT import statements\n")
 	description.WriteString("• Modern JavaScript features supported (const/let, arrow functions, destructuring, etc.)\n")
-	
+
 	// Add HTTP-specific note only if HTTP is enabled
 	if enabledSet["http"] {
 		description.WriteString("• HTTP servers automatically run in background and don't block execution\n")
 	}
-	
+
 	description.WriteString("• Async/await and Promises are fully supported\n")
 
 	return description.String()
