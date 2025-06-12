@@ -25,7 +25,7 @@ func TestBuildToolDescription(t *testing.T) {
 				"• timers: setTimeout, setInterval, clearTimeout, clearInterval",
 				"• buffer: Buffer, Blob, File APIs for binary data handling",
 				"• crypto: Cryptographic functions (hashing, encryption, HMAC)",
-				"Example usage:",
+				"Example usage (modern JavaScript with require()):",
 			},
 		},
 		{
@@ -36,7 +36,7 @@ func TestBuildToolDescription(t *testing.T) {
 				"Available modules:",
 				"• http: HTTP server creation and management",
 				"• fetch: Modern fetch API with Request, Response, Headers, FormData",
-				"Example usage:",
+				"Example usage (modern JavaScript with require()):",
 			},
 			notExpected: []string{
 				"• timers:",
