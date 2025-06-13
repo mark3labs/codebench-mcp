@@ -62,10 +62,15 @@ func (b *BufferModule) Setup(runtime *sobek.Runtime, manager *vm.VMManager) erro
 			} else {
 				// Try to convert to array
 				exported := arg.Export()
-				if arr, ok := exported.([]interface{}); ok {
-					data = make([]byte, len(arr))
-					for i, v := range arr {
-						if num, ok := v.(float64); ok {
+				switch v := exported.(type) {
+				case []byte:
+					// Direct byte array
+					data = v
+				case []any:
+					// Array of any (same as []interface{})
+					data = make([]byte, len(v))
+					for i, val := range v {
+						if num, ok := val.(float64); ok {
 							data[i] = byte(int(num))
 						}
 					}

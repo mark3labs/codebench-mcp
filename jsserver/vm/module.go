@@ -1,6 +1,9 @@
 package vm
 
-import "github.com/grafana/sobek"
+import (
+	"github.com/grafana/sobek"
+	"github.com/mark3labs/codebench-mcp/internal/logger"
+)
 
 // Module interface defines how modules integrate with the VM
 type Module interface {
@@ -35,12 +38,15 @@ func (r *ModuleRegistry) Get(name string) (Module, bool) {
 
 // GetEnabled returns all enabled modules based on configuration
 func (r *ModuleRegistry) GetEnabled(enabledModules map[string]bool) []Module {
+	logger.Debug("Getting enabled modules", "enabledMap", enabledModules)
 	var enabled []Module
 	for _, module := range r.modules {
+		logger.Debug("Checking module", "name", module.Name(), "enabled", module.IsEnabled(enabledModules))
 		if module.IsEnabled(enabledModules) {
 			enabled = append(enabled, module)
 		}
 	}
+	logger.Debug("Enabled modules found", "count", len(enabled))
 	return enabled
 }
 

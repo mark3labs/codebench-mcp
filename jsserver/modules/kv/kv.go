@@ -7,13 +7,13 @@ import (
 
 // KVModule provides key-value storage per VM instance
 type KVModule struct {
-	store map[string]interface{} // Per-VM instance storage
+	store map[string]any // Per-VM instance storage
 }
 
 // NewKVModule creates a new KV module with isolated storage
 func NewKVModule() *KVModule {
 	return &KVModule{
-		store: make(map[string]interface{}),
+		store: make(map[string]any),
 	}
 }
 
@@ -24,6 +24,17 @@ func (kv *KVModule) Name() string {
 
 // Setup initializes the KV module in the VM
 func (kv *KVModule) Setup(runtime *sobek.Runtime, manager *vm.VMManager) error {
+	// No setup needed - kv will be available as a global
+	return nil
+}
+
+// GetGlobalName returns the global name for this module
+func (kv *KVModule) GetGlobalName() string {
+	return "kv"
+}
+
+// CreateGlobalObject creates the kv object for global access
+func (kv *KVModule) CreateGlobalObject(runtime *sobek.Runtime) sobek.Value {
 	kvObj := runtime.NewObject()
 
 	// kv.get(key) - retrieve a value
@@ -75,7 +86,7 @@ func (kv *KVModule) Setup(runtime *sobek.Runtime, manager *vm.VMManager) error {
 
 	// kv.clear() - clear all data
 	kvObj.Set("clear", func(call sobek.FunctionCall) sobek.Value {
-		kv.store = make(map[string]interface{})
+		kv.store = make(map[string]any)
 		return runtime.ToValue(true)
 	})
 
@@ -94,8 +105,7 @@ func (kv *KVModule) Setup(runtime *sobek.Runtime, manager *vm.VMManager) error {
 		return runtime.ToValue(len(kv.store))
 	})
 
-	runtime.Set("kv", kvObj)
-	return nil
+	return kvObj
 }
 
 // Cleanup performs any necessary cleanup

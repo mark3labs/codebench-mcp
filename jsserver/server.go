@@ -1,10 +1,8 @@
 package jsserver
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"log/slog"
 	"strings"
 	"time"
 
@@ -15,6 +13,7 @@ import (
 	// Import our new VM system
 	"github.com/mark3labs/codebench-mcp/internal/logger"
 	"github.com/mark3labs/codebench-mcp/jsserver/modules/buffer"
+	"github.com/mark3labs/codebench-mcp/jsserver/modules/cache"
 	"github.com/mark3labs/codebench-mcp/jsserver/modules/console"
 	"github.com/mark3labs/codebench-mcp/jsserver/modules/crypto"
 	"github.com/mark3labs/codebench-mcp/jsserver/modules/encoding"
@@ -28,29 +27,6 @@ import (
 
 var Version = "dev"
 
-// captureLogger captures log output to a buffer
-type captureLogger struct {
-	buffer *bytes.Buffer
-}
-
-func (c *captureLogger) Enabled(context.Context, slog.Level) bool {
-	return true
-}
-
-func (c *captureLogger) Handle(ctx context.Context, record slog.Record) error {
-	c.buffer.WriteString(record.Message)
-	c.buffer.WriteString("\n")
-	return nil
-}
-
-func (c *captureLogger) WithAttrs(attrs []slog.Attr) slog.Handler {
-	return c
-}
-
-func (c *captureLogger) WithGroup(name string) slog.Handler {
-	return c
-}
-
 type ModuleConfig struct {
 	EnabledModules  []string
 	DisabledModules []string
@@ -63,7 +39,7 @@ type JSHandler struct {
 
 func NewJSHandler() *JSHandler {
 	return NewJSHandlerWithConfig(ModuleConfig{
-		EnabledModules: []string{"http", "fetch", "timers", "buffer", "kv", "crypto"},
+		EnabledModules: []string{"http", "fetch", "timers", "buffer", "kv", "crypto", "encoding", "url", "cache"},
 	})
 }
 
@@ -77,8 +53,7 @@ func NewJSHandlerWithConfig(config ModuleConfig) *JSHandler {
 
 	vmManager := vm.NewVMManager(enabledModules)
 
-	// Register all available modules
-	vmManager.RegisterModule(console.NewConsoleModule(nil)) // Console always enabled
+	// Register all available modules (except console which is handled per-execution)
 	vmManager.RegisterModule(kv.NewKVModule())
 	vmManager.RegisterModule(timers.NewTimersModule())
 	vmManager.RegisterModule(fetch.NewFetchModule())
@@ -87,6 +62,7 @@ func NewJSHandlerWithConfig(config ModuleConfig) *JSHandler {
 	vmManager.RegisterModule(crypto.NewCryptoModule())
 	vmManager.RegisterModule(encoding.NewEncodingModule())
 	vmManager.RegisterModule(url.NewURLModule())
+	vmManager.RegisterModule(cache.NewCacheModule())
 
 	return &JSHandler{
 		vmManager: vmManager,
@@ -106,7 +82,7 @@ func (h *JSHandler) handleExecuteJS(
 	logger.Debug("Executing JavaScript code", "length", len(code))
 
 	// Check if this looks like HTTP server code
-	isServerCode := strings.Contains(code, "serve(") || strings.Contains(code, "require('ski/http/server')")
+	isServerCode := strings.Contains(code, "serve(") || strings.Contains(code, "require('http/server')")
 
 	if isServerCode {
 		logger.Debug("Detected server code, running in background")
@@ -121,9 +97,7 @@ func (h *JSHandler) handleExecuteJS(
 
 func (h *JSHandler) handleServerCode(ctx context.Context, code string) (*mcp.CallToolResult, error) {
 	// Capture console output
-	var output bytes.Buffer
-	captureHandler := &captureLogger{buffer: &output}
-	logger := slog.New(captureHandler)
+	var output strings.Builder
 
 	// Channel to signal if a server was actually started
 	serverStarted := make(chan bool, 1)
@@ -133,18 +107,18 @@ func (h *JSHandler) handleServerCode(ctx context.Context, code string) (*mcp.Cal
 		// Create VM with custom logger for console output
 		vm, err := h.vmManager.CreateVM(ctx)
 		if err != nil {
-			logger.Error("Failed to create VM", "error", err)
+			logger.Debug("Failed to create VM", "error", err)
 			serverStarted <- false
 			return
 		}
 		defer vm.Close()
 
-		// Override console module with our capture logger
-		consoleModule := console.NewConsoleModule(logger)
-		consoleModule.Setup(vm.Runtime(), h.vmManager)
+		// Setup console module to capture output
+		consoleModule := console.NewConsoleModule(&output)
+		consoleModule.Setup(vm.Runtime())
 
 		// Execute the JavaScript code
-		_, err = vm.RunStringWithEventLoop(code)
+		_, err = vm.RunString(code)
 		if err != nil {
 			logger.Error("Server execution error", "error", err)
 			serverStarted <- false
@@ -186,13 +160,12 @@ func (h *JSHandler) handleServerCode(ctx context.Context, code string) (*mcp.Cal
 
 func (h *JSHandler) handleRegularCode(ctx context.Context, code string) (*mcp.CallToolResult, error) {
 	// Capture console output
-	var output bytes.Buffer
-	captureHandler := &captureLogger{buffer: &output}
-	logger := slog.New(captureHandler)
+	var output strings.Builder
 
 	// Create VM instance for this execution
 	vm, err := h.vmManager.CreateVM(ctx)
 	if err != nil {
+		logger.Debug("Failed to create VM", "error", err)
 		return &mcp.CallToolResult{
 			Content: []mcp.Content{
 				mcp.TextContent{
@@ -205,9 +178,9 @@ func (h *JSHandler) handleRegularCode(ctx context.Context, code string) (*mcp.Ca
 	}
 	defer vm.Close()
 
-	// Override console module with our capture logger
-	consoleModule := console.NewConsoleModule(logger)
-	consoleModule.Setup(vm.Runtime(), h.vmManager)
+	// Setup console module to capture output
+	consoleModule := console.NewConsoleModule(&output)
+	consoleModule.Setup(vm.Runtime())
 
 	// Execute the JavaScript code with a timeout for regular code
 	execCtx, cancel := context.WithTimeout(ctx, time.Second*10)
@@ -218,7 +191,7 @@ func (h *JSHandler) handleRegularCode(ctx context.Context, code string) (*mcp.Ca
 	errorChan := make(chan error, 1)
 
 	go func() {
-		result, err := vm.RunStringWithEventLoop(code)
+		result, err := vm.RunString(code)
 		if err != nil {
 			errorChan <- err
 		} else {
@@ -261,7 +234,7 @@ func (h *JSHandler) handleRegularCode(ctx context.Context, code string) (*mcp.Ca
 			Content: []mcp.Content{
 				mcp.TextContent{
 					Type: "text",
-					Text: fmt.Sprintf("%s%s", resultStr, output.String()),
+					Text: fmt.Sprintf("%s%s", output.String(), resultStr),
 				},
 			},
 		}, nil
@@ -294,7 +267,7 @@ func NewJSServerWithConfig(config ModuleConfig) (*server.MCPServer, error) {
 		"executeJS",
 		mcp.WithDescription(description),
 		mcp.WithString("code",
-			mcp.Description("Complete JavaScript source code to execute in the ski runtime environment. This parameter accepts a full JavaScript program including variable declarations, function definitions, control flow statements, and module imports via require(). The code will be executed in a sandboxed environment with access to enabled ski modules. Supports modern JavaScript syntax (ES2020+) including arrow functions, destructuring, template literals, and promises. Use require() for module imports (e.g., 'const serve = require(\"ski/http/server\")') rather than ES6 import statements. Note: Top-level async/await is not supported - wrap async code in an async function and call it (e.g., '(async () => { await fetch(...); })()' or define and call an async function). The execution context includes a console object for output, and any returned values will be displayed along with console output. For HTTP servers, they will run in the background without blocking execution completion."),
+			mcp.Description("Complete JavaScript source code to execute in the ski runtime environment. This parameter accepts a full JavaScript program including variable declarations, function definitions, control flow statements, and module imports via require(). The code will be executed in a sandboxed environment with access to enabled ski modules. Supports modern JavaScript syntax (ES2020+) including arrow functions, destructuring, template literals, and promises. Use require() for module imports (e.g., 'const serve = require(\"http/server\")') rather than ES6 import statements. Note: Top-level async/await is not supported - wrap async code in an async function and call it (e.g., '(async () => { await fetch(...); })()' or define and call an async function). The execution context includes a console object for output, and any returned values will be displayed along with console output. For HTTP servers, they will run in the background without blocking execution completion."),
 			mcp.Required(),
 		),
 	), h.handleExecuteJS)
@@ -318,11 +291,11 @@ func buildToolDescription(enabledModules []string) string {
 
 	// Define module descriptions
 	moduleDescriptions := map[string]string{
-		"http":     "HTTP server creation and management (const serve = require('ski/http/server'))",
+		"http":     "HTTP server creation and management (const serve = require('http/server'))",
 		"fetch":    "Modern fetch API with Request, Response, Headers, FormData (available globally)",
 		"timers":   "setTimeout, setInterval, clearTimeout, clearInterval (available globally)",
 		"buffer":   "Buffer, Blob, File APIs for binary data handling (available globally)",
-		"crypto":   "Cryptographic functions (hashing, encryption, HMAC) (const crypto = require('ski/crypto'))",
+		"crypto":   "Cryptographic functions (hashing, encryption, HMAC) (const crypto = require('crypto'))",
 		"kv":       "Key-value store per VM instance with get, set, delete, list (available globally)",
 		"console":  "Console logging with structured output (available globally)",
 		"encoding": "TextEncoder/TextDecoder for UTF-8 encoding/decoding (available globally)",
@@ -359,7 +332,7 @@ func buildToolDescription(enabledModules []string) string {
 
 	if enabledSet["http"] {
 		description.WriteString("// HTTP server (require import - NOT import statement)\n")
-		description.WriteString("const serve = require('ski/http/server');\n")
+		description.WriteString("const serve = require('http/server');\n")
 		description.WriteString("const server = serve(8000, async (req) => {\n")
 		description.WriteString("  return new Response(`Hello ${req.method} ${req.url}!`);\n")
 		description.WriteString("});\n")
@@ -368,7 +341,7 @@ func buildToolDescription(enabledModules []string) string {
 
 	if enabledSet["crypto"] {
 		description.WriteString("// Crypto operations (require import)\n")
-		description.WriteString("const crypto = require('ski/crypto');\n")
+		description.WriteString("const crypto = require('crypto');\n")
 		description.WriteString("const hash = crypto.md5('hello').hex();\n")
 		description.WriteString("console.log('MD5 hash:', hash);\n\n")
 	}

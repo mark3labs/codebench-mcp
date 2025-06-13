@@ -28,8 +28,8 @@ var availableModules = []string{
 	"crypto",
 	"encoding",
 	"url",
+	"cache",
 	// TODO: Add these as they're implemented
-	// "cache",
 	// "dom",
 	// "ext",
 	// "html",
@@ -78,7 +78,7 @@ with ski runtime including http, fetch, timers, buffer, crypto, and other module
 			}
 		} else {
 			// Enable default modules (same as NewJSHandler default)
-			modulesToEnable = []string{"http", "fetch", "timers", "buffer", "kv", "crypto"}
+			modulesToEnable = []string{"http", "fetch", "timers", "buffer", "kv", "crypto", "encoding", "url", "cache"}
 		}
 
 		logger.Debug("Module configuration", "enabled", modulesToEnable)

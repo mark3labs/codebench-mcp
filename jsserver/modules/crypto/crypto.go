@@ -50,35 +50,13 @@ func (e *Encoder) bytes() []byte {
 
 // Setup initializes the crypto module in the VM
 func (c *CryptoModule) Setup(runtime *sobek.Runtime, manager *vm.VMManager) error {
-	// Create a require function that can load the crypto module
-	existingRequire := runtime.Get("require")
-	runtime.Set("require", func(call sobek.FunctionCall) sobek.Value {
-		if len(call.Arguments) == 0 {
-			return sobek.Undefined()
-		}
-
-		moduleName := call.Argument(0).String()
-
-		switch moduleName {
-		case "crypto", "ski/crypto":
-			// Return the crypto object
-			return c.createCryptoObject(runtime)
-		default:
-			// For other modules, call existing require if it exists
-			if existingRequire != nil && !sobek.IsUndefined(existingRequire) {
-				if fn, ok := sobek.AssertFunction(existingRequire); ok {
-					result, err := fn(sobek.Undefined(), call.Arguments...)
-					if err != nil {
-						panic(runtime.NewGoError(err))
-					}
-					return result
-				}
-			}
-			return sobek.Undefined()
-		}
-	})
-
+	// No setup needed - the module will be available via require()
 	return nil
+}
+
+// CreateModuleObject creates the crypto object when required
+func (c *CryptoModule) CreateModuleObject(runtime *sobek.Runtime) sobek.Value {
+	return c.createCryptoObject(runtime)
 }
 
 // createCryptoObject creates the crypto module object

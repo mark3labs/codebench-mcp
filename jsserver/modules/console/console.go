@@ -2,25 +2,23 @@ package console
 
 import (
 	"fmt"
-	"log/slog"
 	"strings"
 
 	"github.com/grafana/sobek"
-	"github.com/mark3labs/codebench-mcp/jsserver/vm"
 )
 
 // ConsoleModule provides console.log, console.error, etc.
 type ConsoleModule struct {
-	logger *slog.Logger
+	output *strings.Builder
 }
 
 // NewConsoleModule creates a new console module
-func NewConsoleModule(logger *slog.Logger) *ConsoleModule {
-	if logger == nil {
-		logger = slog.Default()
+func NewConsoleModule(output *strings.Builder) *ConsoleModule {
+	if output == nil {
+		output = &strings.Builder{}
 	}
 	return &ConsoleModule{
-		logger: logger,
+		output: output,
 	}
 }
 
@@ -39,57 +37,62 @@ func (c *ConsoleModule) formatArgs(args []sobek.Value) string {
 	return strings.Join(parts, " ")
 }
 
+// writeMessage writes a message to the output
+func (c *ConsoleModule) writeMessage(message string) {
+	if c.output != nil {
+		c.output.WriteString(message)
+		c.output.WriteString("\n")
+	}
+}
+
+// GetOutput returns the captured console output
+func (c *ConsoleModule) GetOutput() string {
+	if c.output == nil {
+		return ""
+	}
+	return c.output.String()
+}
+
 // Setup initializes the console module in the VM
-func (c *ConsoleModule) Setup(runtime *sobek.Runtime, manager *vm.VMManager) error {
+func (c *ConsoleModule) Setup(runtime *sobek.Runtime) error {
 	console := runtime.NewObject()
 
 	// console.log
 	console.Set("log", func(call sobek.FunctionCall) sobek.Value {
 		message := c.formatArgs(call.Arguments)
-		c.logger.Info(message)
+		c.writeMessage(message)
 		return sobek.Undefined()
 	})
 
 	// console.error
 	console.Set("error", func(call sobek.FunctionCall) sobek.Value {
 		message := c.formatArgs(call.Arguments)
-		c.logger.Error(message)
+		c.writeMessage(message)
 		return sobek.Undefined()
 	})
 
 	// console.warn
 	console.Set("warn", func(call sobek.FunctionCall) sobek.Value {
 		message := c.formatArgs(call.Arguments)
-		c.logger.Warn(message)
+		c.writeMessage(message)
 		return sobek.Undefined()
 	})
 
 	// console.info
 	console.Set("info", func(call sobek.FunctionCall) sobek.Value {
 		message := c.formatArgs(call.Arguments)
-		c.logger.Info(message)
+		c.writeMessage(message)
 		return sobek.Undefined()
 	})
 
 	// console.debug
 	console.Set("debug", func(call sobek.FunctionCall) sobek.Value {
 		message := c.formatArgs(call.Arguments)
-		c.logger.Debug(message)
+		c.writeMessage(message)
 		return sobek.Undefined()
 	})
 
+	// Set console as global
 	runtime.Set("console", console)
 	return nil
-}
-
-// Cleanup performs any necessary cleanup
-func (c *ConsoleModule) Cleanup() error {
-	// Console module doesn't need cleanup
-	return nil
-}
-
-// IsEnabled checks if the module should be enabled based on configuration
-func (c *ConsoleModule) IsEnabled(enabledModules map[string]bool) bool {
-	// Console is always enabled as it's essential for debugging
-	return true
 }

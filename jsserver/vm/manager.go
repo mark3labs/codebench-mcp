@@ -4,12 +4,14 @@ import (
 	"context"
 
 	"github.com/grafana/sobek"
+	"github.com/mark3labs/codebench-mcp/internal/logger"
 )
 
 // VMManager manages Sobek VM instances
 type VMManager struct {
 	enabledModules map[string]bool
 	registry       *ModuleRegistry
+	loader         *ModuleLoader
 }
 
 // NewVMManager creates a new VM manager with specified enabled modules
@@ -22,18 +24,22 @@ func NewVMManager(enabledModules []string) *VMManager {
 	return &VMManager{
 		enabledModules: enabledMap,
 		registry:       NewModuleRegistry(),
+		loader:         NewModuleLoader(),
 	}
 }
 
 // RegisterModule adds a module to the manager
 func (m *VMManager) RegisterModule(module Module) error {
 	m.registry.Register(module)
+	m.loader.RegisterModule(module)
 	return nil
 }
 
 // CreateVM creates a new VM instance with all enabled modules
 // Each VM is completely isolated
 func (m *VMManager) CreateVM(ctx context.Context) (*VM, error) {
+	logger.Debug("Creating new VM instance")
+	
 	// Create new Sobek runtime
 	rt := sobek.New()
 
@@ -49,15 +55,29 @@ func (m *VMManager) CreateVM(ctx context.Context) (*VM, error) {
 
 	// Store VM reference in runtime for event loop access
 	_ = rt.GlobalObject().SetSymbol(symbolVM, &vmSelf{vm: vm})
+	logger.Debug("VM symbol stored in runtime")
+
+	// Setup global require function
+	m.loader.EnableRequire(rt)
+	logger.Debug("Global require function enabled")
 
 	// Setup all enabled modules
 	enabledModules := m.registry.GetEnabled(m.enabledModules)
+	logger.Debug("Setting up enabled modules", "count", len(enabledModules))
 	for _, module := range enabledModules {
+		logger.Debug("Setting up module", "name", module.Name())
 		if err := module.Setup(rt, m); err != nil {
+			logger.Debug("Module setup failed", "name", module.Name(), "error", err)
 			return nil, err
 		}
+		logger.Debug("Module setup completed", "name", module.Name())
 	}
 
+	// Setup global objects for modules that provide them
+	m.loader.SetupGlobals(rt)
+	logger.Debug("Global objects setup completed")
+
+	logger.Debug("VM creation completed")
 	return vm, nil
 }
 
@@ -67,6 +87,7 @@ func (m *VMManager) GetEnabledModules() []string {
 	for module := range m.enabledModules {
 		enabled = append(enabled, module)
 	}
+	logger.Debug("Enabled modules", "modules", enabled)
 	return enabled
 }
 
@@ -78,14 +99,9 @@ type VM struct {
 	eventLoop *EventLoop
 }
 
-// RunString executes JavaScript code in the VM
-func (vm *VM) RunString(code string) (sobek.Value, error) {
-	return vm.runtime.RunString(code)
-}
-
-// RunStringWithEventLoop executes JavaScript code with event loop support
-// This matches ski's pattern where RunString calls Run() which uses the event loop
-func (vm *VM) RunStringWithEventLoop(code string) (ret sobek.Value, err error) {
+// RunString executes JavaScript code in the VM with event loop support
+// This matches ski's pattern where RunString always uses the event loop
+func (vm *VM) RunString(code string) (ret sobek.Value, err error) {
 	err = vm.runWithEventLoop(func() error {
 		ret, err = vm.runtime.RunString(code)
 		return err

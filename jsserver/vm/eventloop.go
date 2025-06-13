@@ -4,6 +4,7 @@ import (
 	"sync"
 
 	"github.com/grafana/sobek"
+	"github.com/mark3labs/codebench-mcp/internal/logger"
 )
 
 // EventLoop implements an event loop for asynchronous JavaScript operations
@@ -11,6 +12,7 @@ type EventLoop struct {
 	queue   []func() error // queue to store the job to be executed
 	cleanup []func()       // job of cleanup
 	enqueue uint           // Count of job in the event loop
+	pending uint           // Count of pending async operations (timers, etc.)
 	cond    *sync.Cond     // Condition variable for synchronization
 }
 
@@ -48,7 +50,7 @@ func (e *EventLoop) Start(task func() error) (err error) {
 			continue
 		}
 
-		if e.enqueue > 0 {
+		if e.enqueue > 0 || e.pending > 0 {
 			e.cond.Wait()
 			e.cond.L.Unlock()
 			continue
@@ -131,6 +133,25 @@ func (je joinError) Error() string {
 	return result
 }
 
+// AddPending increments the pending operation counter
+func (e *EventLoop) AddPending() {
+	e.cond.L.Lock()
+	defer e.cond.L.Unlock()
+	e.pending++
+	logger.Debug("Added pending operation", "pending", e.pending)
+}
+
+// RemovePending decrements the pending operation counter
+func (e *EventLoop) RemovePending() {
+	e.cond.L.Lock()
+	defer e.cond.L.Unlock()
+	if e.pending > 0 {
+		e.pending--
+	}
+	logger.Debug("Removed pending operation", "pending", e.pending)
+	e.cond.Signal()
+}
+
 // Helper functions for runtime integration
 
 var symbolVM = sobek.NewSymbol("Symbol.__vm__")
@@ -148,6 +169,16 @@ func EnqueueJob(rt *sobek.Runtime) Enqueue {
 // Cleanup adds cleanup functions for the given runtime
 func Cleanup(rt *sobek.Runtime, job ...func()) {
 	getVMFromRuntime(rt).eventLoop.Cleanup(job...)
+}
+
+// AddPending adds a pending operation for the given runtime
+func AddPending(rt *sobek.Runtime) {
+	getVMFromRuntime(rt).eventLoop.AddPending()
+}
+
+// RemovePending removes a pending operation for the given runtime
+func RemovePending(rt *sobek.Runtime) {
+	getVMFromRuntime(rt).eventLoop.RemovePending()
 }
 
 // getVMFromRuntime extracts the VM instance from the runtime

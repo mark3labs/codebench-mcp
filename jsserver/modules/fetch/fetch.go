@@ -3,6 +3,7 @@ package fetch
 import (
 	"io"
 	"net/http"
+	"net/http/cookiejar"
 	"strings"
 	"time"
 
@@ -17,9 +18,13 @@ type FetchModule struct {
 
 // NewFetchModule creates a new fetch module
 func NewFetchModule() *FetchModule {
+	// Create cookie jar for automatic cookie handling
+	jar, _ := cookiejar.New(nil)
+	
 	return &FetchModule{
 		client: &http.Client{
 			Timeout: 30 * time.Second,
+			Jar:     jar,
 		},
 	}
 }
@@ -31,107 +36,28 @@ func (f *FetchModule) Name() string {
 
 // Setup initializes the fetch module in the VM
 func (f *FetchModule) Setup(runtime *sobek.Runtime, manager *vm.VMManager) error {
-	// fetch(url, options)
-	runtime.Set("fetch", func(call sobek.FunctionCall) sobek.Value {
-		if len(call.Arguments) == 0 {
-			panic(runtime.NewTypeError("fetch: URL is required"))
-		}
+	// No setup needed - fetch will be available as a global
+	return nil
+}
 
-		url := call.Argument(0).String()
+// GetGlobalName returns the global name for this module
+func (f *FetchModule) GetGlobalName() string {
+	return "fetch"
+}
 
-		// Default options
-		method := "GET"
-		var body io.Reader
-		headers := make(map[string]string)
-
-		// Parse options if provided
-		if len(call.Arguments) > 1 && !sobek.IsUndefined(call.Argument(1)) {
-			options := call.Argument(1).ToObject(runtime)
-
-			if methodVal := options.Get("method"); methodVal != nil && !sobek.IsUndefined(methodVal) {
-				method = strings.ToUpper(methodVal.String())
-			}
-
-			if bodyVal := options.Get("body"); bodyVal != nil && !sobek.IsUndefined(bodyVal) {
-				bodyStr := bodyVal.String()
-				body = strings.NewReader(bodyStr)
-			}
-
-			if headersVal := options.Get("headers"); headersVal != nil && !sobek.IsUndefined(headersVal) {
-				headersObj := headersVal.ToObject(runtime)
-				for _, key := range headersObj.Keys() {
-					headers[key] = headersObj.Get(key).String()
-				}
-			}
-		}
-
-		// Create HTTP request
-		req, err := http.NewRequest(method, url, body)
-		if err != nil {
-			panic(runtime.NewGoError(err))
-		}
-
-		// Set headers
-		for key, value := range headers {
-			req.Header.Set(key, value)
-		}
-
-		// Make the request
-		resp, err := f.client.Do(req)
-		if err != nil {
-			panic(runtime.NewGoError(err))
-		}
-
-		// Create Response object
-		responseObj := runtime.NewObject()
-		responseObj.Set("status", resp.StatusCode)
-		responseObj.Set("statusText", resp.Status)
-		responseObj.Set("ok", resp.StatusCode >= 200 && resp.StatusCode < 300)
-		responseObj.Set("url", resp.Request.URL.String())
-
-		// Headers object
-		headersObj := runtime.NewObject()
-		for key, values := range resp.Header {
-			if len(values) > 0 {
-				headersObj.Set(key, values[0])
-			}
-		}
-		responseObj.Set("headers", headersObj)
-
-		// Read response body
-		bodyBytes, err := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		if err != nil {
-			panic(runtime.NewGoError(err))
-		}
-
-		// text() method
-		responseObj.Set("text", func(call sobek.FunctionCall) sobek.Value {
-			return runtime.ToValue(string(bodyBytes))
-		})
-
-		// json() method
-		responseObj.Set("json", func(call sobek.FunctionCall) sobek.Value {
-			var result interface{}
-			if err := runtime.ExportTo(runtime.ToValue(string(bodyBytes)), &result); err != nil {
-				// Try to parse as JSON
-				jsonVal, err := runtime.RunString("JSON.parse(" + runtime.ToValue(string(bodyBytes)).String() + ")")
-				if err != nil {
-					panic(runtime.NewGoError(err))
-				}
-				return jsonVal
-			}
-			return runtime.ToValue(result)
-		})
-
-		// arrayBuffer() method
-		responseObj.Set("arrayBuffer", func(call sobek.FunctionCall) sobek.Value {
-			return runtime.ToValue(bodyBytes)
-		})
-
-		return responseObj
+// CreateGlobalObject creates the fetch function and related objects for global access
+func (f *FetchModule) CreateGlobalObject(runtime *sobek.Runtime) sobek.Value {
+	// Set up all fetch-related globals
+	f.setupFetchGlobals(runtime)
+	
+	// Return the main fetch function
+	return runtime.ToValue(func(call sobek.FunctionCall) sobek.Value {
+		return f.handleFetch(call, runtime)
 	})
+}
 
+// setupFetchGlobals sets up Request, Response, Headers, FormData constructors
+func (f *FetchModule) setupFetchGlobals(runtime *sobek.Runtime) {
 	// Request constructor
 	runtime.Set("Request", func(call sobek.ConstructorCall) *sobek.Object {
 		obj := call.This
@@ -203,8 +129,107 @@ func (f *FetchModule) Setup(runtime *sobek.Runtime, manager *vm.VMManager) error
 
 		return nil
 	})
+}
 
-	return nil
+// handleFetch handles the main fetch function call
+func (f *FetchModule) handleFetch(call sobek.FunctionCall, runtime *sobek.Runtime) sobek.Value {
+	if len(call.Arguments) == 0 {
+		panic(runtime.NewTypeError("fetch: URL is required"))
+	}
+
+	url := call.Argument(0).String()
+
+	// Default options
+	method := "GET"
+	var body io.Reader
+	headers := make(map[string]string)
+
+	// Parse options if provided
+	if len(call.Arguments) > 1 && !sobek.IsUndefined(call.Argument(1)) {
+		options := call.Argument(1).ToObject(runtime)
+
+		if methodVal := options.Get("method"); methodVal != nil && !sobek.IsUndefined(methodVal) {
+			method = strings.ToUpper(methodVal.String())
+		}
+
+		if bodyVal := options.Get("body"); bodyVal != nil && !sobek.IsUndefined(bodyVal) {
+			bodyStr := bodyVal.String()
+			body = strings.NewReader(bodyStr)
+		}
+
+		if headersVal := options.Get("headers"); headersVal != nil && !sobek.IsUndefined(headersVal) {
+			headersObj := headersVal.ToObject(runtime)
+			for _, key := range headersObj.Keys() {
+				headers[key] = headersObj.Get(key).String()
+			}
+		}
+	}
+
+	// Create HTTP request
+	req, err := http.NewRequest(method, url, body)
+	if err != nil {
+		panic(runtime.NewGoError(err))
+	}
+
+	// Set headers
+	for key, value := range headers {
+		req.Header.Set(key, value)
+	}
+
+	// Make the request
+	resp, err := f.client.Do(req)
+	if err != nil {
+		panic(runtime.NewGoError(err))
+	}
+
+	// Create Response object
+	responseObj := runtime.NewObject()
+	responseObj.Set("status", resp.StatusCode)
+	responseObj.Set("statusText", resp.Status)
+	responseObj.Set("ok", resp.StatusCode >= 200 && resp.StatusCode < 300)
+	responseObj.Set("url", resp.Request.URL.String())
+
+	// Headers object
+	headersObj := runtime.NewObject()
+	for key, values := range resp.Header {
+		if len(values) > 0 {
+			headersObj.Set(key, values[0])
+		}
+	}
+	responseObj.Set("headers", headersObj)
+
+	// Read response body
+	bodyBytes, err := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if err != nil {
+		panic(runtime.NewGoError(err))
+	}
+
+	// text() method
+	responseObj.Set("text", func(call sobek.FunctionCall) sobek.Value {
+		return runtime.ToValue(string(bodyBytes))
+	})
+
+	// json() method
+	responseObj.Set("json", func(call sobek.FunctionCall) sobek.Value {
+		var result any
+		if err := runtime.ExportTo(runtime.ToValue(string(bodyBytes)), &result); err != nil {
+			// Try to parse as JSON
+			jsonVal, err := runtime.RunString("JSON.parse(" + runtime.ToValue(string(bodyBytes)).String() + ")")
+			if err != nil {
+				panic(runtime.NewGoError(err))
+			}
+			return jsonVal
+		}
+		return runtime.ToValue(result)
+	})
+
+	// arrayBuffer() method
+	responseObj.Set("arrayBuffer", func(call sobek.FunctionCall) sobek.Value {
+		return runtime.ToValue(bodyBytes)
+	})
+
+	return responseObj
 }
 
 // Cleanup performs any necessary cleanup

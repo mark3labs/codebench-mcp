@@ -40,27 +40,16 @@ type httpServer struct {
 
 // Setup initializes the HTTP module in the VM
 func (h *HTTPModule) Setup(runtime *sobek.Runtime, manager *vm.VMManager) error {
-	// Create a require function that can load the HTTP server
-	runtime.Set("require", func(call sobek.FunctionCall) sobek.Value {
-		if len(call.Arguments) == 0 {
-			return sobek.Undefined()
-		}
-
-		moduleName := call.Argument(0).String()
-
-		switch moduleName {
-		case "ski/http/server":
-			// Return the serve function
-			return runtime.ToValue(func(call sobek.FunctionCall) sobek.Value {
-				return h.createServer(call, runtime)
-			})
-		default:
-			// For other modules, return undefined
-			return sobek.Undefined()
-		}
-	})
-
+	// No setup needed - the module will be available via require()
 	return nil
+}
+
+// CreateModuleObject creates the HTTP server module when required
+func (h *HTTPModule) CreateModuleObject(runtime *sobek.Runtime) sobek.Value {
+	// Return the serve function directly for http/server
+	return runtime.ToValue(func(call sobek.FunctionCall) sobek.Value {
+		return h.createServer(call, runtime)
+	})
 }
 
 // createServer creates and starts an HTTP server
