@@ -446,6 +446,37 @@ func newRequest(runtime *sobek.Runtime, r *http.Request) sobek.Value {
 	}
 	reqObj.Set("headers", headersObj)
 
+	// Read request body
+	bodyStr := ""
+	if r.Body != nil {
+		bodyBytes, err := io.ReadAll(r.Body)
+		if err == nil {
+			bodyStr = string(bodyBytes)
+		}
+		// Close the original body and replace with a new reader for downstream use
+		r.Body.Close()
+		r.Body = io.NopCloser(strings.NewReader(bodyStr))
+	}
+	
+	reqObj.Set("body", bodyStr)
+	
+	// Add text() method for compatibility
+	reqObj.Set("text", func(call sobek.FunctionCall) sobek.Value {
+		return runtime.ToValue(bodyStr)
+	})
+	
+	// Add json() method for convenience
+	reqObj.Set("json", func(call sobek.FunctionCall) sobek.Value {
+		if bodyStr == "" {
+			return sobek.Null()
+		}
+		jsonVal, err := runtime.RunString("JSON.parse(" + runtime.ToValue(bodyStr).String() + ")")
+		if err != nil {
+			panic(runtime.NewGoError(err))
+		}
+		return jsonVal
+	})
+
 	return reqObj
 }
 
