@@ -1,19 +1,19 @@
 # JavaScript Executor MCP Server
 
-This MCP server provides JavaScript execution capabilities with ski runtime.
+This MCP server provides JavaScript execution capabilities with a modern runtime.
 
 ## Features
 
 The `executeJS` tool provides:
 
 - **Console API**: `console.log()`, `console.error()`, `console.warn()` (built-in)
-- **HTTP Server**: `serve()` for server creation (via `require('ski/http/server')`)
+- **HTTP Server**: `serve()` for server creation (via `require('http/server')`)
 - **Fetch API**: Modern `fetch()` with Request, Response, Headers, FormData (global)
 - **Timers**: `setTimeout()`, `setInterval()`, `clearTimeout()`, `clearInterval()` (global)
 - **Buffer**: Buffer, Blob, File APIs for binary data handling (global)
-- **Crypto**: Cryptographic functions - hashing, encryption, HMAC (via `require('ski/crypto')`)
-- **Cache**: In-memory caching with TTL support (via `require('ski/cache')`)
-- **Additional modules**: dom, encoding (global), ext, html, signal (global), stream (global), url (global)
+- **Crypto**: Cryptographic functions - hashing, encryption, HMAC (via `require('crypto')`)
+- **Cache**: In-memory caching with TTL support (via `require('cache')`)
+- **Additional modules**: encoding (global), url (global)
 
 ## Getting Started
 
@@ -47,21 +47,16 @@ codebench-mcp --help
 ```
 
 **Available modules:**
-- `http` - HTTP server creation and client requests (import serve from 'ski/http/server')
+- `http` - HTTP server creation and client requests (require('http/server'))
 - `fetch` - Modern fetch API with Request, Response, Headers, FormData (available globally)
 - `timers` - setTimeout, setInterval, clearTimeout, clearInterval (available globally)
 - `buffer` - Buffer, Blob, File APIs for binary data handling (available globally)
-- `cache` - In-memory caching with TTL support (import cache from 'ski/cache')
-- `crypto` - Cryptographic functions (hashing, encryption, HMAC) (import crypto from 'ski/crypto')
-- `dom` - DOM Event and EventTarget APIs
+- `cache` - In-memory caching with TTL support (require('cache'))
+- `crypto` - Cryptographic functions (hashing, encryption, HMAC) (require('crypto'))
 - `encoding` - TextEncoder, TextDecoder for text encoding/decoding (available globally)
-- `ext` - Extended context and utility functions
-- `html` - HTML parsing and manipulation
-- `signal` - AbortController and AbortSignal for cancellation (available globally)
-- `stream` - ReadableStream and streaming APIs (available globally)
 - `url` - URL and URLSearchParams APIs (available globally)
 
-**Default modules:** `http`, `fetch`, `timers`, `buffer`, `crypto`
+All modules are enabled by default. You can selectively enable or disable modules using CLI flags.
 
 **Note:** The `executeJS` tool description dynamically updates to show only the enabled modules and includes detailed information about what each module provides.
 
@@ -73,13 +68,13 @@ package main
 import (
 	"log"
 
-	"github.com/mark3labs/codebench-mcp/jsserver"
+	"github.com/mark3labs/codebench-mcp/server"
 	"github.com/mark3labs/mcp-go/server"
 )
 
 func main() {
 	// Create a new JavaScript executor server
-	jss, err := jsserver.NewJSServer()
+	jss, err := server.NewJSServer()
 	if err != nil {
 		log.Fatalf("Failed to create server: %v", err)
 	}
@@ -100,17 +95,17 @@ import (
 	"context"
 	"log"
 
-	"github.com/mark3labs/codebench-mcp/jsserver"
+	"github.com/mark3labs/codebench-mcp/server"
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
 func main() {
 	// Create the JS server with custom module configuration
-	config := jsserver.ModuleConfig{
+	config := server.ModuleConfig{
 		EnabledModules: []string{"fetch", "crypto", "buffer"},
 	}
-	jsServer, err := jsserver.NewJSServerWithConfig(config)
+	jsServer, err := server.NewJSServerWithConfig(config)
 	if err != nil {
 		log.Fatalf("Failed to create server: %v", err)
 	}
@@ -212,7 +207,7 @@ To integrate the Docker image with apps that support MCP:
 
 ### executeJS
 
-Execute JavaScript code with ski runtime environment.
+Execute JavaScript code with a modern runtime environment.
 
 **Parameters:**
 - `code` (required): JavaScript code to execute
@@ -230,18 +225,18 @@ const response = await fetch('https://api.example.com/data');
 const data = await response.json();
 
 // HTTP server (require import)
-const serve = require('ski/http/server');
+const serve = require('http/server');
 serve(8000, async (req) => {
   return new Response('Hello World');
 });
 
 // Cache operations (require import)
-const cache = require('ski/cache');
+const cache = require('cache');
 cache.set('key', 'value');
 console.log(cache.get('key'));
 
 // Crypto operations (require import)
-const crypto = require('ski/crypto');
+const crypto = require('crypto');
 const hash = crypto.md5('hello').hex();
 console.log('MD5 hash:', hash);
 
@@ -260,7 +255,7 @@ console.log('Pathname:', url.pathname);
 
 ## Limitations
 
-- **No fs or process modules** - File system and process APIs are not available in ski runtime
+- **No fs or process modules** - File system and process APIs are not available in the runtime
 - **Module access varies** - Some modules are global (fetch, http), others may need require()
 - **Each execution creates a fresh VM** - For isolation, each execution starts with a clean state
 - **Module filtering** - Configuration exists but actual runtime filtering not fully implemented
