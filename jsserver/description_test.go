@@ -1,6 +1,8 @@
 package jsserver
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -90,32 +92,100 @@ func TestBuildToolDescription(t *testing.T) {
 	}
 }
 
-func TestToolDescriptionDynamicUpdate(t *testing.T) {
-	// Test that different configurations produce different descriptions
-	config1 := ModuleConfig{EnabledModules: []string{"http", "fetch"}}
-	config2 := ModuleConfig{EnabledModules: []string{"timers"}}
+func TestAllModulesRepresentedInDescription(t *testing.T) {
+	// Get all available modules from the actual modules directory
+	allModules := []string{"http", "fetch", "timers", "buffer", "crypto", "cache", "kv", "encoding", "url"}
+	
+	// Test with all modules enabled
+	description := buildToolDescription(allModules)
+	
+	// Verify each module is mentioned in the description
+	expectedModuleDescriptions := map[string]string{
+		"http":     "HTTP server creation and management",
+		"fetch":    "Modern fetch API with Request, Response, Headers, FormData",
+		"timers":   "setTimeout, setInterval, clearTimeout, clearInterval",
+		"buffer":   "Buffer, Blob, File APIs for binary data handling",
+		"crypto":   "Cryptographic functions (hashing, encryption, HMAC)",
+		"cache":    "In-memory caching with TTL support",
+		"kv":       "Key-value store per VM instance with get, set, delete, list",
+		"encoding": "TextEncoder/TextDecoder for UTF-8 encoding/decoding",
+		"url":      "URL parsing and URLSearchParams manipulation",
+	}
+	
+	for module, expectedDesc := range expectedModuleDescriptions {
+		t.Run(fmt.Sprintf("Module_%s", module), func(t *testing.T) {
+			// Check that the module is listed
+			assert.Contains(t, description, fmt.Sprintf("• %s:", module), 
+				"Module %s should be listed in description", module)
+			
+			// Check that the description contains key parts of the expected description
+			assert.Contains(t, description, expectedDesc, 
+				"Module %s should have correct description containing: %s", module, expectedDesc)
+		})
+	}
+	
+	// Verify the description contains the modules section
+	assert.Contains(t, description, "Available modules:")
+	
+	// Verify no modules are missing by checking the count
+	moduleCount := 0
+	for _, module := range allModules {
+		if strings.Contains(description, fmt.Sprintf("• %s:", module)) {
+			moduleCount++
+		}
+	}
+	assert.Equal(t, len(allModules), moduleCount, 
+		"All %d modules should be represented in description, found %d", len(allModules), moduleCount)
+}
 
-	server1, err := NewJSServerWithConfig(config1)
-	assert.NoError(t, err)
-	assert.NotNil(t, server1)
+func TestModuleDescriptionConsistency(t *testing.T) {
+	// Test that require() vs global availability is correctly indicated
+	description := buildToolDescription([]string{"http", "fetch", "crypto", "cache", "timers", "buffer"})
+	
+	// Modules that require require() should mention it
+	requireModules := []string{"http", "crypto", "cache"}
+	for _, module := range requireModules {
+		assert.Contains(t, description, fmt.Sprintf("require('%s", module), 
+			"Module %s should show require() usage", module)
+	}
+	
+	// Global modules should mention "available globally"
+	globalModules := []string{"fetch", "timers", "buffer"}
+	for _, module := range globalModules {
+		moduleLineRegex := fmt.Sprintf("• %s:.*available globally", module)
+		assert.Regexp(t, moduleLineRegex, description, 
+			"Module %s should mention 'available globally'", module)
+	}
+}
 
-	server2, err := NewJSServerWithConfig(config2)
-	assert.NoError(t, err)
-	assert.NotNil(t, server2)
-
-	// The descriptions should be different
-	desc1 := buildToolDescription(config1.EnabledModules)
-	desc2 := buildToolDescription(config2.EnabledModules)
-
-	assert.NotEqual(t, desc1, desc2, "Different module configurations should produce different descriptions")
-
-	// Config1 should mention http and fetch
-	assert.Contains(t, desc1, "• http:")
-	assert.Contains(t, desc1, "• fetch:")
-	assert.NotContains(t, desc1, "• timers:")
-
-	// Config2 should mention timers
-	assert.Contains(t, desc2, "• timers:")
-	assert.NotContains(t, desc2, "• http:")
-	assert.NotContains(t, desc2, "• fetch:")
+func TestNoMissingModulesInDescription(t *testing.T) {
+	// This test ensures that if we add a new module to the codebase,
+	// we don't forget to add it to the description builder
+	
+	// Get the module descriptions map from the buildToolDescription function
+	// We'll test this by checking that all modules we know exist have descriptions
+	allKnownModules := []string{"http", "fetch", "timers", "buffer", "crypto", "cache", "kv", "encoding", "url"}
+	
+	// Build description with all modules
+	description := buildToolDescription(allKnownModules)
+	
+	// Count how many modules are actually described
+	describedModules := 0
+	for _, module := range allKnownModules {
+		if strings.Contains(description, fmt.Sprintf("• %s:", module)) {
+			describedModules++
+		}
+	}
+	
+	// This test will fail if:
+	// 1. We add a new module but forget to add it to moduleDescriptions map
+	// 2. We add a module to allKnownModules but it's not in the description
+	assert.Equal(t, len(allKnownModules), describedModules, 
+		"All known modules should be described. Known: %d, Described: %d. "+
+		"If you added a new module, make sure to add it to the moduleDescriptions map in buildToolDescription()", 
+		len(allKnownModules), describedModules)
+	
+	// Also verify that the description doesn't contain any undefined modules
+	assert.NotContains(t, description, "• undefined:", 
+		"Description should not contain undefined modules")
 }

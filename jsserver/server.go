@@ -296,6 +296,7 @@ func buildToolDescription(enabledModules []string) string {
 		"timers":   "setTimeout, setInterval, clearTimeout, clearInterval (available globally)",
 		"buffer":   "Buffer, Blob, File APIs for binary data handling (available globally)",
 		"crypto":   "Cryptographic functions (hashing, encryption, HMAC) (const crypto = require('crypto'))",
+		"cache":    "In-memory caching with TTL support (const cache = require('cache'))",
 		"kv":       "Key-value store per VM instance with get, set, delete, list (available globally)",
 		"console":  "Console logging with structured output (available globally)",
 		"encoding": "TextEncoder/TextDecoder for UTF-8 encoding/decoding (available globally)",
