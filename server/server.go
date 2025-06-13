@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/grafana/sobek"
@@ -33,8 +34,10 @@ type ModuleConfig struct {
 }
 
 type JSHandler struct {
-	vmManager *vm.VMManager
-	config    ModuleConfig
+	vmManager    *vm.VMManager
+	config       ModuleConfig
+	runningVMs   []*vm.VM
+	vmMutex      sync.Mutex
 }
 
 func NewJSHandler() *JSHandler {
@@ -82,7 +85,9 @@ func (h *JSHandler) handleExecuteJS(
 	logger.Debug("Executing JavaScript code", "length", len(code))
 
 	// Check if this looks like HTTP server code
-	isServerCode := strings.Contains(code, "serve(") || strings.Contains(code, "require('http/server')")
+	isServerCode := strings.Contains(code, "serve(") && 
+		(strings.Contains(code, "require('http/server')") || 
+		 strings.Contains(code, "require(\"http/server\")"))
 
 	if isServerCode {
 		logger.Debug("Detected server code, running in background")
@@ -99,19 +104,26 @@ func (h *JSHandler) handleServerCode(ctx context.Context, code string) (*mcp.Cal
 	// Capture console output
 	var output strings.Builder
 
-	// Channel to signal if a server was actually started
-	serverStarted := make(chan bool, 1)
+	// Channel to capture execution results
+	resultChan := make(chan string, 1)
+	errorChan := make(chan error, 1)
 
-	// Run the server code in a goroutine
+	// Run the server code in a goroutine that stays alive
 	go func() {
 		// Create VM with custom logger for console output
-		vm, err := h.vmManager.CreateVM(ctx)
+		// Use background context so VM doesn't get cancelled when request finishes
+		vmCtx := context.Background()
+		vm, err := h.vmManager.CreateVM(vmCtx)
 		if err != nil {
 			logger.Debug("Failed to create VM", "error", err)
-			serverStarted <- false
+			errorChan <- err
 			return
 		}
-		defer vm.Close()
+
+		// Track this VM for cleanup
+		h.vmMutex.Lock()
+		h.runningVMs = append(h.runningVMs, vm)
+		h.vmMutex.Unlock()
 
 		// Setup console module to capture output
 		consoleModule := console.NewConsoleModule(&output)
@@ -121,41 +133,60 @@ func (h *JSHandler) handleServerCode(ctx context.Context, code string) (*mcp.Cal
 		_, err = vm.RunString(code)
 		if err != nil {
 			logger.Error("Server execution error", "error", err)
-			serverStarted <- false
+			errorChan <- err
+			// Remove from tracking and close VM on error
+			h.vmMutex.Lock()
+			for i, trackedVM := range h.runningVMs {
+				if trackedVM == vm {
+					h.runningVMs = append(h.runningVMs[:i], h.runningVMs[i+1:]...)
+					break
+				}
+			}
+			h.vmMutex.Unlock()
+			vm.Close()
 			return
 		}
 
-		// If no server was started, signal false and let goroutine exit
-		select {
-		case serverStarted <- false:
-		default:
-			// Channel already has a value, meaning a server was started
-		}
+		// Send initial output back
+		resultChan <- output.String()
 
-		// Check if we should keep the goroutine alive
-		select {
-		case started := <-serverStarted:
-			if started {
-				// Keep the goroutine alive indefinitely for HTTP servers
-				select {}
-			}
-			// Otherwise, let the goroutine exit naturally
-		default:
-			// No signal received, let goroutine exit
-		}
+		// Keep the goroutine and VM alive indefinitely for HTTP servers
+		// The VM will be cleaned up when the MCP server shuts down
+		select {}
 	}()
 
-	// Give the server time to start
-	time.Sleep(500 * time.Millisecond)
-
-	return &mcp.CallToolResult{
-		Content: []mcp.Content{
-			mcp.TextContent{
-				Type: "text",
-				Text: fmt.Sprintf("Server code executed in background. Check console output:\n%s", output.String()),
+	// Wait for initial execution to complete or timeout
+	select {
+	case <-time.After(2 * time.Second):
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				mcp.TextContent{
+					Type: "text",
+					Text: "Server code execution timeout. If this is an HTTP server, it may still be starting in the background.",
+				},
 			},
-		},
-	}, nil
+			IsError: true,
+		}, nil
+	case err := <-errorChan:
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				mcp.TextContent{
+					Type: "text",
+					Text: fmt.Sprintf("Server execution error: %v", err),
+				},
+			},
+			IsError: true,
+		}, nil
+	case result := <-resultChan:
+		return &mcp.CallToolResult{
+			Content: []mcp.Content{
+				mcp.TextContent{
+					Type: "text",
+					Text: fmt.Sprintf("Server code executed in background:\n%s", result),
+				},
+			},
+		}, nil
+	}
 }
 
 func (h *JSHandler) handleRegularCode(ctx context.Context, code string) (*mcp.CallToolResult, error) {
@@ -243,6 +274,18 @@ func (h *JSHandler) handleRegularCode(ctx context.Context, code string) (*mcp.Ca
 
 func (h *JSHandler) getAvailableModules() []string {
 	return h.vmManager.GetEnabledModules()
+}
+
+// Cleanup shuts down all running VMs
+func (h *JSHandler) Cleanup() {
+	h.vmMutex.Lock()
+	defer h.vmMutex.Unlock()
+	
+	logger.Debug("Cleaning up running VMs", "count", len(h.runningVMs))
+	for _, vm := range h.runningVMs {
+		vm.Close()
+	}
+	h.runningVMs = nil
 }
 
 func NewJSServer() (*server.MCPServer, error) {
