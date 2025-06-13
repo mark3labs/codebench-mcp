@@ -1,0 +1,11 @@
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "tools/call",
+  "params": {
+    "name": "executeJS",
+    "arguments": {
+      "code": "// Test KV module\nconsole.log('Testing KV module');\nkv.set('name', 'CodeBench');\nkv.set('version', '1.0');\nconsole.log('Stored values');\nconsole.log('name:', kv.get('name'));\nconsole.log('version:', kv.get('version'));\nconsole.log('keys:', kv.list());\nconsole.log('size:', kv.size());\n'KV test completed'"
+    }
+  }
+}

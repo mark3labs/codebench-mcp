@@ -2,11 +2,11 @@ package cmd
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"slices"
 	"strings"
 
+	"github.com/mark3labs/codebench-mcp/internal/logger"
 	"github.com/mark3labs/codebench-mcp/jsserver"
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/spf13/cobra"
@@ -15,6 +15,7 @@ import (
 var (
 	enabledModules  []string
 	disabledModules []string
+	debugMode       bool
 )
 
 // Available modules
@@ -23,15 +24,17 @@ var availableModules = []string{
 	"fetch",
 	"timers",
 	"buffer",
-	"cache",
+	"kv",
 	"crypto",
-	"dom",
 	"encoding",
-	"ext",
-	"html",
-	"signal",
-	"stream",
 	"url",
+	// TODO: Add these as they're implemented
+	// "cache",
+	// "dom",
+	// "ext",
+	// "html",
+	// "signal",
+	// "stream",
 }
 
 // rootCmd represents the base command when called without any subcommands
@@ -41,9 +44,14 @@ var rootCmd = &cobra.Command{
 	Long: `A Model Context Protocol (MCP) server that provides JavaScript execution capabilities 
 with ski runtime including http, fetch, timers, buffer, crypto, and other modules.`,
 	Run: func(cmd *cobra.Command, args []string) {
+		// Initialize logger first
+		logger.Init(debugMode)
+
+		logger.Debug("Starting codebench-mcp server", "debug", debugMode)
+
 		// Validate module configuration
 		if len(enabledModules) > 0 && len(disabledModules) > 0 {
-			log.Fatal("Error: --enabled-modules and --disabled-modules are mutually exclusive")
+			logger.Fatal("--enabled-modules and --disabled-modules are mutually exclusive")
 		}
 
 		// Determine which modules to enable
@@ -52,8 +60,7 @@ with ski runtime including http, fetch, timers, buffer, crypto, and other module
 			// Only enable specified modules
 			for _, module := range enabledModules {
 				if !slices.Contains(availableModules, module) {
-					log.Fatalf("Error: unknown module '%s'. Available modules: %s",
-						module, strings.Join(availableModules, ", "))
+					logger.Fatal("unknown module", "module", module, "available", strings.Join(availableModules, ", "))
 				}
 			}
 			modulesToEnable = enabledModules
@@ -61,8 +68,7 @@ with ski runtime including http, fetch, timers, buffer, crypto, and other module
 			// Enable all modules except disabled ones
 			for _, module := range disabledModules {
 				if !slices.Contains(availableModules, module) {
-					log.Fatalf("Error: unknown module '%s'. Available modules: %s",
-						module, strings.Join(availableModules, ", "))
+					logger.Fatal("unknown module", "module", module, "available", strings.Join(availableModules, ", "))
 				}
 			}
 			for _, module := range availableModules {
@@ -72,8 +78,10 @@ with ski runtime including http, fetch, timers, buffer, crypto, and other module
 			}
 		} else {
 			// Enable default modules (same as NewJSHandler default)
-			modulesToEnable = []string{"http", "fetch", "timers", "buffer", "crypto"}
+			modulesToEnable = []string{"http", "fetch", "timers", "buffer", "kv", "crypto"}
 		}
+
+		logger.Debug("Module configuration", "enabled", modulesToEnable)
 
 		// Create server with module configuration
 		config := jsserver.ModuleConfig{
@@ -82,12 +90,14 @@ with ski runtime including http, fetch, timers, buffer, crypto, and other module
 
 		jss, err := jsserver.NewJSServerWithConfig(config)
 		if err != nil {
-			log.Fatalf("Failed to create server: %v", err)
+			logger.Fatal("Failed to create server", "error", err)
 		}
+
+		logger.Info("Starting MCP server", "modules", modulesToEnable)
 
 		// Serve requests
 		if err := server.ServeStdio(jss); err != nil {
-			log.Fatalf("Server error: %v", err)
+			logger.Fatal("Server error", "error", err)
 		}
 	},
 }
@@ -107,6 +117,8 @@ func init() {
 	rootCmd.Flags().StringSliceVar(&disabledModules, "disabled-modules", nil,
 		fmt.Sprintf("Comma-separated list of modules to disable. Available: %s",
 			strings.Join(availableModules, ", ")))
+	rootCmd.Flags().BoolVar(&debugMode, "debug", false,
+		"Enable debug logging (outputs to stderr)")
 
 	rootCmd.MarkFlagsMutuallyExclusive("enabled-modules", "disabled-modules")
 }
