@@ -11,9 +11,9 @@ The `executeJS` tool provides:
 - **Fetch API**: Modern `fetch()` with Request, Response, Headers, FormData (global)
 - **Timers**: `setTimeout()`, `setInterval()`, `clearTimeout()`, `clearInterval()` (global)
 - **Buffer**: Buffer, Blob, File APIs for binary data handling (global)
-- **Crypto**: Cryptographic functions - hashing, encryption, HMAC (via `require('ski/crypto')`)
-- **Cache**: In-memory caching with TTL support (via `require('ski/cache')`)
-- **Additional modules**: dom, encoding (global), ext, html, signal (global), stream (global), url (global)
+- **Crypto**: Cryptographic functions - hashing, encryption, HMAC (via `require('crypto')`)
+- **Cache**: In-memory caching with TTL support (via `require('cache')`)
+- **Additional modules**: encoding (global), url (global)
 
 ## Getting Started
 
@@ -51,17 +51,12 @@ codebench-mcp --help
 - `fetch` - Modern fetch API with Request, Response, Headers, FormData (available globally)
 - `timers` - setTimeout, setInterval, clearTimeout, clearInterval (available globally)
 - `buffer` - Buffer, Blob, File APIs for binary data handling (available globally)
-- `cache` - In-memory caching with TTL support (import cache from 'ski/cache')
-- `crypto` - Cryptographic functions (hashing, encryption, HMAC) (import crypto from 'ski/crypto')
-- `dom` - DOM Event and EventTarget APIs
+- `cache` - In-memory caching with TTL support (require('cache'))
+- `crypto` - Cryptographic functions (hashing, encryption, HMAC) (require('crypto'))
 - `encoding` - TextEncoder, TextDecoder for text encoding/decoding (available globally)
-- `ext` - Extended context and utility functions
-- `html` - HTML parsing and manipulation
-- `signal` - AbortController and AbortSignal for cancellation (available globally)
-- `stream` - ReadableStream and streaming APIs (available globally)
 - `url` - URL and URLSearchParams APIs (available globally)
 
-**Default modules:** `http`, `fetch`, `timers`, `buffer`, `crypto`
+**Default modules:** `http`, `fetch`, `timers`, `buffer`, `kv`
 
 **Note:** The `executeJS` tool description dynamically updates to show only the enabled modules and includes detailed information about what each module provides.
 
@@ -236,12 +231,12 @@ serve(8000, async (req) => {
 });
 
 // Cache operations (require import)
-const cache = require('ski/cache');
+const cache = require('cache');
 cache.set('key', 'value');
 console.log(cache.get('key'));
 
 // Crypto operations (require import)
-const crypto = require('ski/crypto');
+const crypto = require('crypto');
 const hash = crypto.md5('hello').hex();
 console.log('MD5 hash:', hash);
 
