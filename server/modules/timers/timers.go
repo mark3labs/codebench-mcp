@@ -5,7 +5,7 @@ import (
 
 	"github.com/grafana/sobek"
 	"github.com/mark3labs/codebench-mcp/internal/logger"
-	"github.com/mark3labs/codebench-mcp/jsserver/vm"
+	"github.com/mark3labs/codebench-mcp/server/vm"
 )
 
 // TimersModule provides setTimeout, setInterval, clearTimeout, clearInterval
@@ -25,7 +25,7 @@ func (t *TimersModule) Name() string {
 func (t *TimersModule) Setup(runtime *sobek.Runtime, manager *vm.VMManager) error {
 	logger.Debug("Setting up timers module")
 	
-	// setTimeout - copied exactly from ski
+	// setTimeout - standard implementation
 	runtime.Set("setTimeout", func(call sobek.FunctionCall) sobek.Value {
 		logger.Debug("setTimeout called", "args", len(call.Arguments))
 		
@@ -84,7 +84,7 @@ func (t *TimersModule) Setup(runtime *sobek.Runtime, manager *vm.VMManager) erro
 		return runtime.ToValue(t.id)
 	})
 
-	// clearTimeout - copied exactly from ski
+	// clearTimeout - standard implementation
 	runtime.Set("clearTimeout", func(call sobek.FunctionCall) sobek.Value {
 		id := call.Argument(0).ToInteger()
 		logger.Debug("clearTimeout called", "id", id)
@@ -92,7 +92,7 @@ func (t *TimersModule) Setup(runtime *sobek.Runtime, manager *vm.VMManager) erro
 		return sobek.Undefined()
 	})
 
-	// setInterval - copied exactly from ski
+	// setInterval - standard implementation
 	runtime.Set("setInterval", func(call sobek.FunctionCall) sobek.Value {
 		logger.Debug("setInterval called", "args", len(call.Arguments))
 		
@@ -147,7 +147,7 @@ func (t *TimersModule) Setup(runtime *sobek.Runtime, manager *vm.VMManager) erro
 		return runtime.ToValue(t.id)
 	})
 
-	// clearInterval - copied exactly from ski
+	// clearInterval - standard implementation
 	runtime.Set("clearInterval", func(call sobek.FunctionCall) sobek.Value {
 		id := call.Argument(0).ToInteger()
 		logger.Debug("clearInterval called", "id", id)
@@ -171,7 +171,7 @@ func (t *TimersModule) IsEnabled(enabledModules map[string]bool) bool {
 	return exists && enabled
 }
 
-// timer represents a single timer instance (copied exactly from ski)
+// timer represents a single timer instance (standard implementation)
 type timer struct {
 	id      int64
 	timer   <-chan time.Time
@@ -194,7 +194,7 @@ func (t *timer) stop() {
 	}
 }
 
-// timers manages all timers for a runtime (copied exactly from ski)
+// timers manages all timers for a runtime (standard implementation)
 type timers struct {
 	id    int64
 	timer map[int64]*timer

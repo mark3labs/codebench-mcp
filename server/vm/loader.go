@@ -9,7 +9,7 @@ import (
 )
 
 // ModuleLoader provides a global require system for modules
-// Based on ski's loader pattern but simplified for our use case
+// Based on a standard loader pattern but simplified for our use case
 type ModuleLoader struct {
 	modules sync.Map // map[string]Module
 	aliases sync.Map // map[string]string - maps alias to module name

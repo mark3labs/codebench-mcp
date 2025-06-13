@@ -1,4 +1,4 @@
-package jsserver
+package server
 
 import (
 	"context"

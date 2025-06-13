@@ -5,7 +5,7 @@ import (
 	"encoding/hex"
 
 	"github.com/grafana/sobek"
-	"github.com/mark3labs/codebench-mcp/jsserver/vm"
+	"github.com/mark3labs/codebench-mcp/server/vm"
 )
 
 // BufferModule provides Buffer global for binary data handling

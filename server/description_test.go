@@ -1,4 +1,4 @@
-package jsserver
+package server
 
 import (
 	"fmt"
@@ -19,7 +19,7 @@ func TestBuildToolDescription(t *testing.T) {
 			name:           "All modules enabled",
 			enabledModules: []string{"http", "fetch", "timers", "buffer", "crypto"},
 			expectedContent: []string{
-				"ski runtime",
+				"modern runtime",
 				"Node.js-like APIs",
 				"Available modules:",
 				"• http: HTTP server creation and management",
@@ -34,7 +34,7 @@ func TestBuildToolDescription(t *testing.T) {
 			name:           "Only http and fetch",
 			enabledModules: []string{"http", "fetch"},
 			expectedContent: []string{
-				"ski runtime",
+				"modern runtime",
 				"Available modules:",
 				"• http: HTTP server creation and management",
 				"• fetch: Modern fetch API with Request, Response, Headers, FormData",
@@ -50,7 +50,7 @@ func TestBuildToolDescription(t *testing.T) {
 			name:           "No modules enabled",
 			enabledModules: []string{},
 			expectedContent: []string{
-				"ski runtime",
+				"modern runtime",
 				"No modules are currently enabled",
 				"Only basic JavaScript execution is available",
 			},

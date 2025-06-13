@@ -100,7 +100,7 @@ type VM struct {
 }
 
 // RunString executes JavaScript code in the VM with event loop support
-// This matches ski's pattern where RunString always uses the event loop
+// This matches the standard pattern where RunString always uses the event loop
 func (vm *VM) RunString(code string) (ret sobek.Value, err error) {
 	err = vm.runWithEventLoop(func() error {
 		ret, err = vm.runtime.RunString(code)
@@ -109,7 +109,7 @@ func (vm *VM) RunString(code string) (ret sobek.Value, err error) {
 	return
 }
 
-// runWithEventLoop executes a task in the event loop (similar to ski's Run method)
+// runWithEventLoop executes a task in the event loop (similar to standard Run method)
 func (vm *VM) runWithEventLoop(task func() error) error {
 	// Clear any previous interrupt
 	vm.runtime.ClearInterrupt()

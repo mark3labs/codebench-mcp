@@ -2,7 +2,7 @@ package encoding
 
 import (
 	"github.com/grafana/sobek"
-	"github.com/mark3labs/codebench-mcp/jsserver/vm"
+	"github.com/mark3labs/codebench-mcp/server/vm"
 )
 
 // EncodingModule provides TextEncoder and TextDecoder

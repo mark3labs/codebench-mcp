@@ -1,10 +1,10 @@
-package jsserver_test
+package server_test
 
 import (
 	"context"
 	"testing"
 
-	"github.com/mark3labs/codebench-mcp/jsserver"
+	"github.com/mark3labs/codebench-mcp/server"
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/assert"
@@ -13,7 +13,7 @@ import (
 
 func TestInProcessTransport(t *testing.T) {
 	// Create the JS server
-	jsServer, err := jsserver.NewJSServer()
+	jsServer, err := server.NewJSServer()
 	require.NoError(t, err)
 
 	// Create an in-process client
@@ -34,7 +34,7 @@ func TestInProcessTransport(t *testing.T) {
 	}
 	result, err := mcpClient.Initialize(context.Background(), initRequest)
 	require.NoError(t, err)
-	assert.Equal(t, "javascript-executor", result.ServerInfo.Name)
+	assert.Equal(t, "codebench-mcp", result.ServerInfo.Name)
 
 	// List tools to verify executeJS is available
 	toolsResult, err := mcpClient.ListTools(context.Background(), mcp.ListToolsRequest{})
@@ -76,7 +76,7 @@ func TestInProcessTransport(t *testing.T) {
 
 func TestInProcessTransport_ErrorHandling(t *testing.T) {
 	// Create the JS server
-	jsServer, err := jsserver.NewJSServer()
+	jsServer, err := server.NewJSServer()
 	require.NoError(t, err)
 
 	// Create an in-process client

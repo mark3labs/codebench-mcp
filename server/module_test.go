@@ -1,4 +1,4 @@
-package jsserver
+package server
 
 import (
 	"context"
@@ -75,7 +75,7 @@ func TestModuleConfiguration_DisabledModules(t *testing.T) {
 }
 
 func TestModuleConfiguration_NoConsole(t *testing.T) {
-	// Test with basic execution - console.log should work in ski runtime
+	// Test with basic execution - console.log should work in the runtime
 	config := ModuleConfig{
 		EnabledModules: []string{}, // No modules enabled
 	}

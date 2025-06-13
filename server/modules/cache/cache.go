@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/grafana/sobek"
-	"github.com/mark3labs/codebench-mcp/jsserver/vm"
+	"github.com/mark3labs/codebench-mcp/server/vm"
 )
 
 // CacheModule provides in-memory caching with TTL support

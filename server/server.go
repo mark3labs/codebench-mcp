@@ -1,4 +1,4 @@
-package jsserver
+package server
 
 import (
 	"context"
@@ -12,17 +12,17 @@ import (
 
 	// Import our new VM system
 	"github.com/mark3labs/codebench-mcp/internal/logger"
-	"github.com/mark3labs/codebench-mcp/jsserver/modules/buffer"
-	"github.com/mark3labs/codebench-mcp/jsserver/modules/cache"
-	"github.com/mark3labs/codebench-mcp/jsserver/modules/console"
-	"github.com/mark3labs/codebench-mcp/jsserver/modules/crypto"
-	"github.com/mark3labs/codebench-mcp/jsserver/modules/encoding"
-	"github.com/mark3labs/codebench-mcp/jsserver/modules/fetch"
-	"github.com/mark3labs/codebench-mcp/jsserver/modules/http"
-	"github.com/mark3labs/codebench-mcp/jsserver/modules/kv"
-	"github.com/mark3labs/codebench-mcp/jsserver/modules/timers"
-	"github.com/mark3labs/codebench-mcp/jsserver/modules/url"
-	"github.com/mark3labs/codebench-mcp/jsserver/vm"
+	"github.com/mark3labs/codebench-mcp/server/modules/buffer"
+	"github.com/mark3labs/codebench-mcp/server/modules/cache"
+	"github.com/mark3labs/codebench-mcp/server/modules/console"
+	"github.com/mark3labs/codebench-mcp/server/modules/crypto"
+	"github.com/mark3labs/codebench-mcp/server/modules/encoding"
+	"github.com/mark3labs/codebench-mcp/server/modules/fetch"
+	"github.com/mark3labs/codebench-mcp/server/modules/http"
+	"github.com/mark3labs/codebench-mcp/server/modules/kv"
+	"github.com/mark3labs/codebench-mcp/server/modules/timers"
+	"github.com/mark3labs/codebench-mcp/server/modules/url"
+	"github.com/mark3labs/codebench-mcp/server/vm"
 )
 
 var Version = "dev"
@@ -255,7 +255,7 @@ func NewJSServerWithConfig(config ModuleConfig) (*server.MCPServer, error) {
 	h := NewJSHandlerWithConfig(config)
 
 	s := server.NewMCPServer(
-		"javascript-executor",
+		"codebench-mcp",
 		Version,
 	)
 
@@ -267,7 +267,7 @@ func NewJSServerWithConfig(config ModuleConfig) (*server.MCPServer, error) {
 		"executeJS",
 		mcp.WithDescription(description),
 		mcp.WithString("code",
-			mcp.Description("Complete JavaScript source code to execute in the ski runtime environment. This parameter accepts a full JavaScript program including variable declarations, function definitions, control flow statements, and module imports via require(). The code will be executed in a sandboxed environment with access to enabled ski modules. Supports modern JavaScript syntax (ES2020+) including arrow functions, destructuring, template literals, and promises. Use require() for module imports (e.g., 'const serve = require(\"http/server\")') rather than ES6 import statements. Note: Top-level async/await is not supported - wrap async code in an async function and call it (e.g., '(async () => { await fetch(...); })()' or define and call an async function). The execution context includes a console object for output, and any returned values will be displayed along with console output. For HTTP servers, they will run in the background without blocking execution completion."),
+			mcp.Description("Complete JavaScript source code to execute in a modern runtime environment. This parameter accepts a full JavaScript program including variable declarations, function definitions, control flow statements, and module imports via require(). The code will be executed in a sandboxed environment with access to enabled modules. Supports modern JavaScript syntax (ES2020+) including arrow functions, destructuring, template literals, and promises. Use require() for module imports (e.g., 'const serve = require(\"http/server\")') rather than ES6 import statements. Note: Top-level async/await is not supported - wrap async code in an async function and call it (e.g., '(async () => { await fetch(...); })()' or define and call an async function). The execution context includes a console object for output, and any returned values will be displayed along with console output. For HTTP servers, they will run in the background without blocking execution completion."),
 			mcp.Required(),
 		),
 	), h.handleExecuteJS)
@@ -278,7 +278,7 @@ func NewJSServerWithConfig(config ModuleConfig) (*server.MCPServer, error) {
 func buildToolDescription(enabledModules []string) string {
 	var description strings.Builder
 
-	description.WriteString("Execute JavaScript code with Node.js-like APIs powered by ski runtime. ")
+	description.WriteString("Execute JavaScript code with Node.js-like APIs powered by a modern runtime. ")
 	description.WriteString("Supports modern JavaScript (ES2020+), CommonJS modules via require(), promises, and comprehensive JavaScript APIs. ")
 	description.WriteString("ES6 import statements are not supported in direct execution - use require() instead.\n\n")
 

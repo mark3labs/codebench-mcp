@@ -7,8 +7,8 @@ import (
 	"strings"
 
 	"github.com/mark3labs/codebench-mcp/internal/logger"
-	"github.com/mark3labs/codebench-mcp/jsserver"
-	"github.com/mark3labs/mcp-go/server"
+	"github.com/mark3labs/codebench-mcp/server"
+	mcpserver "github.com/mark3labs/mcp-go/server"
 	"github.com/spf13/cobra"
 )
 
@@ -42,7 +42,7 @@ var rootCmd = &cobra.Command{
 	Use:   "codebench-mcp",
 	Short: "JavaScript Executor MCP Server",
 	Long: `A Model Context Protocol (MCP) server that provides JavaScript execution capabilities 
-with ski runtime including http, fetch, timers, buffer, crypto, and other modules.`,
+with a modern runtime including http, fetch, timers, buffer, crypto, and other modules.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		// Initialize logger first
 		logger.Init(debugMode)
@@ -84,11 +84,11 @@ with ski runtime including http, fetch, timers, buffer, crypto, and other module
 		logger.Debug("Module configuration", "enabled", modulesToEnable)
 
 		// Create server with module configuration
-		config := jsserver.ModuleConfig{
+		config := server.ModuleConfig{
 			EnabledModules: modulesToEnable,
 		}
 
-		jss, err := jsserver.NewJSServerWithConfig(config)
+		jss, err := server.NewJSServerWithConfig(config)
 		if err != nil {
 			logger.Fatal("Failed to create server", "error", err)
 		}
@@ -96,7 +96,7 @@ with ski runtime including http, fetch, timers, buffer, crypto, and other module
 		logger.Info("Starting MCP server", "modules", modulesToEnable)
 
 		// Serve requests
-		if err := server.ServeStdio(jss); err != nil {
+		if err := mcpserver.ServeStdio(jss); err != nil {
 			logger.Fatal("Server error", "error", err)
 		}
 	},
