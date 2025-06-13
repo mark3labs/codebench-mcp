@@ -56,7 +56,7 @@ codebench-mcp --help
 - `encoding` - TextEncoder, TextDecoder for text encoding/decoding (available globally)
 - `url` - URL and URLSearchParams APIs (available globally)
 
-**Default modules:** `http`, `fetch`, `timers`, `buffer`, `kv`
+All modules are enabled by default. You can selectively enable or disable modules using CLI flags.
 
 **Note:** The `executeJS` tool description dynamically updates to show only the enabled modules and includes detailed information about what each module provides.
 

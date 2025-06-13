@@ -58,7 +58,7 @@ func (m *VMManager) CreateVM(ctx context.Context) (*VM, error) {
 	logger.Debug("VM symbol stored in runtime")
 
 	// Setup global require function
-	m.loader.EnableRequire(rt)
+	m.loader.EnableRequire(rt, m.enabledModules)
 	logger.Debug("Global require function enabled")
 
 	// Setup all enabled modules
@@ -74,7 +74,7 @@ func (m *VMManager) CreateVM(ctx context.Context) (*VM, error) {
 	}
 
 	// Setup global objects for modules that provide them
-	m.loader.SetupGlobals(rt)
+	m.loader.SetupGlobals(rt, m.enabledModules)
 	logger.Debug("Global objects setup completed")
 
 	logger.Debug("VM creation completed")

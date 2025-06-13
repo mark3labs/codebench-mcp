@@ -47,8 +47,8 @@ func NewJSHandlerWithConfig(config ModuleConfig) *JSHandler {
 	// Create VM manager with enabled modules
 	enabledModules := config.EnabledModules
 	if len(enabledModules) == 0 && len(config.DisabledModules) == 0 {
-		// Default modules if none specified
-		enabledModules = []string{"fetch", "timers", "buffer", "kv"}
+		// Enable all modules by default if none specified
+		enabledModules = []string{"http", "fetch", "timers", "buffer", "kv", "crypto", "encoding", "url", "cache"}
 	}
 
 	vmManager := vm.NewVMManager(enabledModules)

@@ -40,7 +40,7 @@ func (l *ModuleLoader) RegisterModule(module Module) {
 }
 
 // EnableRequire sets up the global require function in the runtime
-func (l *ModuleLoader) EnableRequire(rt *sobek.Runtime) {
+func (l *ModuleLoader) EnableRequire(rt *sobek.Runtime, enabledModules map[string]bool) {
 	rt.Set("require", func(call sobek.FunctionCall) sobek.Value {
 		if len(call.Arguments) == 0 {
 			panic(rt.NewTypeError("require() expects a module name"))
@@ -59,6 +59,12 @@ func (l *ModuleLoader) EnableRequire(rt *sobek.Runtime) {
 		if moduleInterface, ok := l.modules.Load(moduleName); ok {
 			module := moduleInterface.(Module)
 			logger.Debug("Module found", "name", moduleName)
+			
+			// Check if module is enabled
+			if !module.IsEnabled(enabledModules) {
+				logger.Debug("Module not enabled", "name", moduleName)
+				panic(rt.NewTypeError(fmt.Sprintf("Module '%s' is not enabled", moduleName)))
+			}
 			
 			// Create the module object
 			if moduleCreator, ok := module.(ModuleCreator); ok {
@@ -91,14 +97,19 @@ type GlobalModule interface {
 }
 
 // SetupGlobals sets up global objects for modules that implement GlobalModule
-func (l *ModuleLoader) SetupGlobals(rt *sobek.Runtime) {
-	l.modules.Range(func(key, value interface{}) bool {
+func (l *ModuleLoader) SetupGlobals(rt *sobek.Runtime, enabledModules map[string]bool) {
+	l.modules.Range(func(key, value any) bool {
 		module := value.(Module)
 		if globalModule, ok := module.(GlobalModule); ok {
-			globalName := globalModule.GetGlobalName()
-			globalObject := globalModule.CreateGlobalObject(rt)
-			rt.Set(globalName, globalObject)
-			logger.Debug("Global object set", "name", globalName)
+			// Check if module is enabled
+			if module.IsEnabled(enabledModules) {
+				globalName := globalModule.GetGlobalName()
+				globalObject := globalModule.CreateGlobalObject(rt)
+				rt.Set(globalName, globalObject)
+				logger.Debug("Global object set", "name", globalName)
+			} else {
+				logger.Debug("Global module not enabled", "name", module.Name())
+			}
 		}
 		return true
 	})
