@@ -5,6 +5,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/mark3labs/codebench-mcp/internal/logger"
 	"github.com/mark3labs/codebench-mcp/server"
@@ -16,6 +17,7 @@ var (
 	enabledModules  []string
 	disabledModules []string
 	debugMode       bool
+	executionTimeout int
 )
 
 // Available modules
@@ -86,6 +88,7 @@ with a modern runtime including http, fetch, timers, buffer, crypto, and other m
 		// Create server with module configuration
 		config := server.ModuleConfig{
 			EnabledModules: modulesToEnable,
+			ExecutionTimeout: time.Duration(executionTimeout) * time.Second,
 		}
 
 		jss, err := server.NewJSServerWithConfig(config)
@@ -119,6 +122,8 @@ func init() {
 			strings.Join(availableModules, ", ")))
 	rootCmd.Flags().BoolVar(&debugMode, "debug", false,
 		"Enable debug logging (outputs to stderr)")
+	rootCmd.Flags().IntVar(&executionTimeout, "execution-timeout", 300,
+		"JavaScript execution timeout in seconds (default: 300 = 5 minutes)")
 
 	rootCmd.MarkFlagsMutuallyExclusive("enabled-modules", "disabled-modules")
 }

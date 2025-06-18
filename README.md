@@ -42,6 +42,9 @@ codebench-mcp --enabled-modules http,fetch
 # Disable specific modules (enable all others)
 codebench-mcp --disabled-modules timers
 
+# Set custom execution timeout (in seconds)
+codebench-mcp --execution-timeout 600  # 10 minutes
+
 # Show help
 codebench-mcp --help
 ```
@@ -212,6 +215,10 @@ Execute JavaScript code with a modern runtime environment.
 **Parameters:**
 - `code` (required): JavaScript code to execute
 
+**Configuration:**
+- Default execution timeout: 5 minutes
+- Configurable via `--execution-timeout <seconds>` CLI flag
+
 **Example:**
 ```javascript
 console.log("Hello, World!");
@@ -259,6 +266,7 @@ console.log('Pathname:', url.pathname);
 - **Module access varies** - Some modules are global (fetch, http), others may need require()
 - **Each execution creates a fresh VM** - For isolation, each execution starts with a clean state
 - **Module filtering** - Configuration exists but actual runtime filtering not fully implemented
+- **Execution timeout** - JavaScript execution is limited by configurable timeout (default: 5 minutes)
 
 ## Building
 

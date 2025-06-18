@@ -29,8 +29,9 @@ import (
 var Version = "dev"
 
 type ModuleConfig struct {
-	EnabledModules  []string
-	DisabledModules []string
+	EnabledModules   []string
+	DisabledModules  []string
+	ExecutionTimeout time.Duration
 }
 
 type JSHandler struct {
@@ -42,7 +43,8 @@ type JSHandler struct {
 
 func NewJSHandler() *JSHandler {
 	return NewJSHandlerWithConfig(ModuleConfig{
-		EnabledModules: []string{"http", "fetch", "timers", "buffer", "kv", "crypto", "encoding", "url", "cache"},
+		EnabledModules:   []string{"http", "fetch", "timers", "buffer", "kv", "crypto", "encoding", "url", "cache"},
+		ExecutionTimeout: 5 * time.Minute,
 	})
 }
 
@@ -213,8 +215,12 @@ func (h *JSHandler) handleRegularCode(ctx context.Context, code string) (*mcp.Ca
 	consoleModule := console.NewConsoleModule(&output)
 	consoleModule.Setup(vm.Runtime())
 
-	// Execute the JavaScript code with a timeout for regular code
-	execCtx, cancel := context.WithTimeout(ctx, time.Second*10)
+	// Execute the JavaScript code with configurable timeout
+	timeout := h.config.ExecutionTimeout
+	if timeout == 0 {
+		timeout = 5 * time.Minute // Default fallback
+	}
+	execCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	// Execute in a goroutine to respect timeout
