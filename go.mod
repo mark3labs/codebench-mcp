@@ -5,7 +5,7 @@ go 1.23.10
 require (
 	github.com/charmbracelet/log v0.4.2
 	github.com/grafana/sobek v0.0.0-20250312125646-01f8811babf6
-	github.com/mark3labs/mcp-go v0.32.0
+	github.com/mark3labs/mcp-go v0.33.0
 	github.com/spf13/cobra v1.9.1
 	github.com/stretchr/testify v1.10.0
 )
